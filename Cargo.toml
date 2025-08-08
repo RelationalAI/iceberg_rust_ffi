@@ -1,0 +1,23 @@
+[package]
+name = "iceberg-c-api"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "iceberg_c_api"
+crate-type = ["cdylib"]
+
+[build-dependencies]
+cbindgen = "0.26"
+
+[dependencies]
+iceberg = "0.6.0"
+tokio = { version = "1.0", features = ["full"] }
+libc = "0.2"
+futures = "0.3"
+anyhow = "1.0"
+arrow-array = "55.2.0"
+arrow-ipc = "55.2.0"
+
+[dev-dependencies]
+tempfile = "3.0"
