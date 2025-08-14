@@ -1,4 +1,4 @@
-#include "../include/iceberg_c_api.h"
+#include "../include/iceberg_rust_ffi.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <dlfcn.h>
@@ -21,7 +21,7 @@ int load_iceberg_library() {
     printf("Loading Iceberg C API library...\n");
     
     // Try to open the dynamic library
-    lib_handle = dlopen("./target/debug/libiceberg_c_api.dylib", RTLD_LAZY);
+    lib_handle = dlopen("./target/debug/libiceberg_rust_ffi.dylib", RTLD_LAZY);
     if (!lib_handle) {
         fprintf(stderr, "❌ Failed to load library: %s\n", dlerror());
         return 0;
@@ -108,7 +108,7 @@ int main() {
 
     // 1. Open table from folder path
     const char* table_path = "s3://vustef-dev/tpch-sf0.1-no-part/nation";
-    const char* metadata_path = "metadata/00001-3d1e09bb-2536-4050-a66c-3f3279594436.metadata.json";
+    const char* metadata_path = "metadata/00001-1744d9f4-1472-4f8c-ac86-b0b7c291248e.metadata.json";
     printf("Opening table at: %s\n", table_path);
     printf("Using metadata file: %s\n", metadata_path);
     

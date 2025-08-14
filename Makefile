@@ -1,7 +1,7 @@
 # Makefile for Iceberg C API integration test
 
 # Variables
-LIB_NAME = libiceberg_c_api
+LIB_NAME = libiceberg_rust_ffi
 TARGET_DIR = target/debug
 TEST_NAME = integration_test
 TEST_SOURCE = tests/integration_test.c

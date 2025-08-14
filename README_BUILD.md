@@ -77,7 +77,7 @@ This confirms that the API is properly accessible from C code and the S3 path co
 - `Makefile` - Build system for the integration test
 - `run_integration_test.sh` - Bash script for building and running the test
 - `tests/integration_test.c` - C integration test
-- `include/iceberg_c_api.h` - C API header file
+- `include/iceberg_rust_ffi.h` - C API header file
 - `src/lib.rs` - Rust implementation of the C API
 
 ## Environment Variables

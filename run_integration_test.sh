@@ -31,7 +31,7 @@ print_error() {
 
 # Check if we're in the right directory
 if [ ! -f "Cargo.toml" ]; then
-    print_error "Cargo.toml not found. Please run this script from the iceberg-c-api directory."
+    print_error "Cargo.toml not found. Please run this script from the iceberg_rust_ffi directory."
     exit 1
 fi
 
@@ -57,16 +57,16 @@ fi
 
 # Determine library path (check both debug and release)
 LIB_PATH=""
-if [ -f "target/debug/libiceberg_c_api.so" ]; then
+if [ -f "target/debug/libiceberg_rust_ffi.so" ]; then
     LIB_PATH="target/debug"
-elif [ -f "target/release/libiceberg_c_api.so" ]; then
+elif [ -f "target/release/libiceberg_rust_ffi.so" ]; then
     LIB_PATH="target/release"
-elif [ -f "target/debug/libiceberg_c_api.dylib" ]; then
+elif [ -f "target/debug/libiceberg_rust_ffi.dylib" ]; then
     LIB_PATH="target/debug"
-elif [ -f "target/release/libiceberg_c_api.dylib" ]; then
+elif [ -f "target/release/libiceberg_rust_ffi.dylib" ]; then
     LIB_PATH="target/release"
 else
-    print_error "Could not find iceberg_c_api library in target/debug or target/release"
+    print_error "Could not find iceberg_rust_ffi library in target/debug or target/release"
     exit 1
 fi
 
@@ -74,7 +74,7 @@ print_status "Using library from: $LIB_PATH"
 
 # Step 2: Build the integration test
 print_status "Building integration test..."
-if gcc -o integration_test tests/integration_test.c -Iinclude -L"$LIB_PATH" -liceberg_c_api -lpthread -ldl -lm; then
+if gcc -o integration_test tests/integration_test.c -Iinclude -L"$LIB_PATH" -liceberg_rust_ffi -lpthread -ldl -lm; then
     print_success "Integration test built successfully"
 else
     print_error "Failed to build integration test"

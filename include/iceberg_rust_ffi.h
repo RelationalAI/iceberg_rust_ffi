@@ -1,5 +1,5 @@
-#ifndef ICEBERG_C_API_H
-#define ICEBERG_C_API_H
+#ifndef ICEBERG_RUST_FFI_H
+#define ICEBERG_RUST_FFI_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -59,4 +59,4 @@ typedef const char* (*iceberg_error_message_func_t)();
 }
 #endif
 
-#endif // ICEBERG_C_API_H
+#endif // ICEBERG_RUST_FFI_H

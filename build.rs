@@ -12,10 +12,10 @@ fn main() {
         .with_config(config)
         .generate()
         .expect("Unable to generate bindings")
-        .write_to_file(out_dir.join("iceberg_c_api.h"));
+        .write_to_file(out_dir.join("iceberg_rust_ffi.h"));
     
     // Note: We're using a manually created header file instead of the cbindgen-generated one
     // The cbindgen output is available in the build output directory if needed for reference
     println!("cargo:rerun-if-changed=src/lib.rs");
-    println!("cargo:rerun-if-changed=include/iceberg_c_api.h");
+    println!("cargo:rerun-if-changed=include/iceberg_rust_ffi.h");
 } 
