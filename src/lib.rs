@@ -82,6 +82,7 @@ pub enum IcebergResult {
 }
 
 // Helper function to create ArrowBatch from RecordBatch
+// TODO: This should be zero-copy...
 fn serialize_record_batch(batch: RecordBatch) -> Result<ArrowBatch> {
     let buffer = Vec::new();
     let mut stream_writer = StreamWriter::try_new(buffer, &batch.schema())?;
