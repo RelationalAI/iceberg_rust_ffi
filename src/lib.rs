@@ -30,6 +30,8 @@ struct IcebergScanInternal {
 }
 
 // Global Tokio runtime using OnceLock for thread safety
+// TODO: Might want to share tokio runtime between here and object_store_ffi.jl, e.g.,
+// by passing object store in and using its runtime.
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 
 fn get_runtime() -> &'static Runtime {
@@ -136,6 +138,7 @@ pub extern "C" fn iceberg_table_open(
         }
     };
     
+    // TODO: Perhaps we should have full asynchronicity that includes the caller code (e.g. Julia) instead of blocking here.
     let result: Result<iceberg::table::Table, anyhow::Error> = get_runtime().block_on(async {
         // println!("DEBUG: Table path: {}", path_str);
         // println!("DEBUG: Metadata path: {}", metadata_path_str);
