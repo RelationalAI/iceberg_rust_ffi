@@ -46,7 +46,7 @@ test: build-test
 	else \
 		echo "No .env file found, running test without environment variables..."; \
 		ls target/release; \
-		./$(TEST_NAME) $(LIB_NAME); \
+		./$(TEST_NAME) "$$(pwd)/$(LIB_NAME)"; \
 	fi
 
 # Clean build artifacts
