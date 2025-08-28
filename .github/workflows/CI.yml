@@ -12,6 +12,8 @@ jobs:
   build:
     name: Build and test
     runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ""
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
