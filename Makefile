@@ -44,6 +44,7 @@ test: build-test
 		set -a; source .env; set +a; ./$(TEST_NAME); \
 	else \
 		echo "No .env file found, running test without environment variables..."; \
+		ls target/release; \
 		./$(TEST_NAME) $(LIB_NAME); \
 	fi
 
