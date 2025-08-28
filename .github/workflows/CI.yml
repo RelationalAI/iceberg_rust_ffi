@@ -7,14 +7,15 @@ on:
   workflow_dispatch:
 
 jobs:
-  format:
+  rustfmt:
+    name: Verify code formatting
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
-      - uses: mbrobbel/rustfmt-check@master
+      - run: cargo fmt --all -- --check
   build:
     runs-on: ${{ matrix.os }}
     strategy:
