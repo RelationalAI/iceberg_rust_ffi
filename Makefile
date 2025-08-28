@@ -12,12 +12,18 @@ CC = gcc
 CFLAGS = -Wall -Wextra -std=c99 -I$(HEADER_DIR)
 LDFLAGS = -ldl -lm
 
+TARGET = local
+
 # Default target
 all: build test
 
 # Generate C header
 generate-header:
-	cargo build
+	@if [ "$(TARGET)" = "local" ]; then \
+		cargo build --release; \
+	else \
+		cargo build --release --target $(TARGET); \
+	fi
 
 # Build the Rust library and generate header
 build-lib: generate-header
@@ -64,4 +70,4 @@ help:
 	@echo "  clean-all      - Clean everything including target directory"
 	@echo "  help           - Show this help message"
 
-.PHONY: all generate-header build-lib build-test build test clean clean-all help 
+.PHONY: all generate-header build-lib build-test build test clean clean-all help
