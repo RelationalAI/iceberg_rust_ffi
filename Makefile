@@ -32,8 +32,7 @@ build-lib: generate-header
 build-test: build-lib
 	$(CC) $(CFLAGS) -o $(TEST_NAME) $(TEST_SOURCE) $(LDFLAGS)
 	@echo "Copying dynamic library to current directory for dlopen..."
-	@cp $(TARGET_DIR)/$(LIB_NAME) . || cp $(TARGET_DIR)/deps/$(LIB_NAME) . \
-		&& ls -la
+	@cp $(TARGET_DIR)/$(LIB_NAME) . || cp $(TARGET_DIR)/deps/$(LIB_NAME) .
 
 # Build everything
 build: build-test
@@ -45,7 +44,6 @@ test: build-test
 		set -a; source .env; set +a; ./$(TEST_NAME); \
 	else \
 		echo "No .env file found, running test without environment variables..."; \
-		ls target/release; \
 		./$(TEST_NAME) "$$(pwd)/$(LIB_NAME)"; \
 	fi
 
