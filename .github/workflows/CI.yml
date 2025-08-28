@@ -18,6 +18,7 @@ jobs:
       - run: cargo fmt --all -- --check
   build:
     runs-on: ${{ matrix.os }}
+    needs: rustfmt
     strategy:
       matrix:
         include:
