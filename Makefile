@@ -32,7 +32,8 @@ build-lib: generate-header
 build-test: build-lib
 	$(CC) $(CFLAGS) -o $(TEST_NAME) $(TEST_SOURCE) $(LDFLAGS)
 	@echo "Copying dynamic library to current directory for dlopen..."
-	@cp $(TARGET_DIR)/$(LIB_NAME) . || cp $(TARGET_DIR)/deps/$(LIB_NAME) .
+	@cp $(TARGET_DIR)/$(LIB_NAME) . || cp $(TARGET_DIR)/deps/$(LIB_NAME) . \
+		&& ls -la
 
 # Build everything
 build: build-test
