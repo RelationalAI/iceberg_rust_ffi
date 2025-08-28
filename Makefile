@@ -1,7 +1,7 @@
 # Makefile for Iceberg C API integration test
 
 # Variables
-LIB_NAME = libiceberg_rust_ffi
+LIB_NAME = libiceberg_rust_ffi.dylib
 TARGET_DIR = target/release
 TEST_NAME = integration_test
 TEST_SOURCE = tests/integration_test.c
@@ -32,7 +32,7 @@ build-lib: generate-header
 build-test: build-lib
 	$(CC) $(CFLAGS) -o $(TEST_NAME) $(TEST_SOURCE) $(LDFLAGS)
 	@echo "Copying dynamic library to current directory for dlopen..."
-	@cp $(TARGET_DIR)/$(LIB_NAME).dylib . || cp $(TARGET_DIR)/deps/$(LIB_NAME).dylib .
+	@cp $(TARGET_DIR)/$(LIB_NAME) . || cp $(TARGET_DIR)/deps/$(LIB_NAME) .
 
 # Build everything
 build: build-test
@@ -51,7 +51,7 @@ test: build-test
 clean:
 	cargo clean
 	rm -f $(TEST_NAME)
-	rm -f $(LIB_NAME).dylib
+	rm -f $(LIB_NAME)
 
 # Clean everything including target
 clean-all: clean
