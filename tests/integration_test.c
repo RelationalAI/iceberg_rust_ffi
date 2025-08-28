@@ -17,11 +17,11 @@ static iceberg_error_message_func_t iceberg_error_message_func = NULL;
 static void* lib_handle = NULL;
 
 // Function to load the library and resolve symbols
-int load_iceberg_library() {
-    printf("Loading Iceberg C API library...\n");
+int load_iceberg_library(const char* library_path) {
+    printf("Loading Iceberg C API library from %s...\n", library_path);
 
     // Try to open the dynamic library
-    lib_handle = dlopen("./target/release/libiceberg_rust_ffi.dylib", RTLD_LAZY);
+    lib_handle = dlopen(library_path, RTLD_LAZY);
     if (!lib_handle) {
         fprintf(stderr, "❌ Failed to load library: %s\n", dlerror());
         return 0;
@@ -94,11 +94,17 @@ void unload_iceberg_library() {
     }
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     printf("Starting Iceberg C API integration test with dynamic loading...\n");
 
+    // Check for one command line argument (the path to the library)
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <library_path>\n", argv[0]);
+        return 1;
+    }
+
     // Load the library
-    if (!load_iceberg_library()) {
+    if (!load_iceberg_library(argv[1])) {
         fprintf(stderr, "Failed to load Iceberg library\n");
         return 1;
     }
