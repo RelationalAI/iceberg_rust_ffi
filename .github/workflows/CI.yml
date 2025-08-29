@@ -32,6 +32,7 @@ jobs:
           - ${{ github.workspace }}/assets/rest:/tmp
         ports:
           - "8181:8181"
+        options: --user root
       minio:
         image: minio/minio:latest
         ports:
