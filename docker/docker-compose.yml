@@ -6,8 +6,8 @@ services:
     container_name: iceberg-rest
     image: apache/iceberg-rest-fixture
     environment:
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_ACCESS_KEY_ID=root
+      - AWS_SECRET_ACCESS_KEY=password
       - AWS_ENDPOINT_URL=http://minio:9000
       - AWS_REGION=us-east-1
       - CATALOG_S3_ENDPOINT=http://minio:9000
@@ -47,8 +47,8 @@ services:
       - ./warehouse:/home/iceberg/warehouse
       - ./notebooks:/home/iceberg/notebooks/notebooks
     environment:
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_ACCESS_KEY_ID=root
+      - AWS_SECRET_ACCESS_KEY=password
       - AWS_REGION=us-east-1
       - AWS_ENDPOINT_URL=http://minio:9000
     ports:
@@ -66,8 +66,8 @@ services:
     volumes:
       - ../assets/tpch:/input
     environment:
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_ACCESS_KEY_ID=root
+      - AWS_SECRET_ACCESS_KEY=password
       - AWS_REGION=us-east-1
     entrypoint: |
       /bin/sh -c "

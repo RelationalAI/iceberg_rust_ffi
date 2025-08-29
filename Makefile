@@ -14,6 +14,8 @@ LDFLAGS = -ldl -lm
 
 TARGET = local
 
+.PHONY: all generate-header build-lib build-test build test clean clean-all help
+
 # Default target
 all: build test
 
@@ -37,8 +39,11 @@ build-test: build-lib
 # Build everything
 build: build-test
 
+run-containers:
+	(cd docker && docker-compose up -d && sleep 10)
+
 # Run the integration test
-test: build-test
+test: build-test run-containers
 	@if [ -f ".env" ]; then \
 		echo "Loading environment variables from .env file..."; \
 		set -a; source .env; set +a; ./$(TEST_NAME); \
@@ -46,6 +51,7 @@ test: build-test
 		echo "No .env file found, running test without environment variables..."; \
 		./$(TEST_NAME) "$$(pwd)/$(LIB_NAME)"; \
 	fi
+	(cd docker && docker-compose down)
 
 # Clean build artifacts
 clean:
