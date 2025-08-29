@@ -14,8 +14,6 @@ LDFLAGS = -ldl -lm
 
 TARGET = local
 
-.PHONY: all generate-header build-lib build-test build test clean clean-all help
-
 # Default target
 all: build test
 
@@ -78,4 +76,4 @@ help:
 	@echo "  clean-all      - Clean everything including target directory"
 	@echo "  help           - Show this help message"
 
-.PHONY: all generate-header build-lib build-test build test clean clean-all help
+.PHONY: all generate-header build-lib build-test build test clean clean-all help stop-containers run-containers
