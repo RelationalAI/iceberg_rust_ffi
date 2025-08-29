@@ -19,6 +19,7 @@ This script will:
 
 #### Build everything and run the test:
 ```bash
+make run-containers
 make all
 ```
 
@@ -39,7 +40,9 @@ make build
 
 #### Run the integration test:
 ```bash
+make run-containers
 make test
+make stop-containers
 ```
 
 #### Clean build artifacts:
@@ -120,4 +123,4 @@ AWS_REGION="us-east-1" \
 - Rust and Cargo
 - GCC compiler
 - Standard C libraries (pthread, dl, m)
-- AWS S3 credentials (for actual S3 access) 
+- AWS S3 credentials (for actual S3 access)

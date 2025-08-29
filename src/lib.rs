@@ -5,14 +5,14 @@ use std::sync::Mutex;
 use std::sync::OnceLock;
 
 use anyhow::Result;
+use arrow_array::RecordBatch;
+use arrow_ipc::writer::StreamWriter;
 use futures::stream::StreamExt;
-use tokio::runtime::Runtime;
 use iceberg::io::FileIOBuilder;
 use iceberg::table::StaticTable;
-use iceberg::{TableIdent};
-use arrow_ipc::writer::StreamWriter;
-use arrow_array::RecordBatch;
+use iceberg::TableIdent;
 use std::env;
+use tokio::runtime::Runtime;
 
 // cbindgen annotations
 #[allow(non_camel_case_types)]
@@ -91,12 +91,12 @@ fn serialize_record_batch(batch: RecordBatch) -> Result<ArrowBatch> {
     stream_writer.write(&batch)?;
     stream_writer.finish()?;
     let serialized_data = stream_writer.into_inner()?;
-    
+
     let boxed_data = Box::new(serialized_data);
     let data_ptr = boxed_data.as_ptr();
     let length = boxed_data.len();
     let rust_ptr = Box::into_raw(boxed_data) as *mut std::ffi::c_void;
-    
+
     Ok(ArrowBatch {
         data: data_ptr,
         length,
@@ -115,9 +115,9 @@ pub extern "C" fn iceberg_table_open(
         set_error("Null pointer provided".to_string());
         return IcebergResult::IcebergNullPointer;
     }
-    
+
     clear_error();
-    
+
     let path_str = unsafe {
         match CStr::from_ptr(table_path).to_str() {
             Ok(s) => s,
@@ -127,7 +127,7 @@ pub extern "C" fn iceberg_table_open(
             }
         }
     };
-    
+
     let metadata_path_str = unsafe {
         match CStr::from_ptr(metadata_path).to_str() {
             Ok(s) => s,
@@ -137,7 +137,7 @@ pub extern "C" fn iceberg_table_open(
             }
         }
     };
-    
+
     // TODO: Perhaps we should have full asynchronicity that includes the caller code (e.g. Julia) instead of blocking here.
     let result: Result<iceberg::table::Table, anyhow::Error> = get_runtime().block_on(async {
         // println!("DEBUG: Table path: {}", path_str);
@@ -153,24 +153,25 @@ pub extern "C" fn iceberg_table_open(
             let metadata_path_trimmed = metadata_path_str.trim_start_matches('/');
             format!("{}/{}", table_path_trimmed, metadata_path_trimmed)
         };
-        
+
         // println!("DEBUG: Full metadata file path: {}", full_metadata_path);
 
         let _ = env::var("AWS_ACCESS_KEY_ID").expect("AWS_ACCESS_KEY_ID must be set");
 
         // Create file IO for S3
         let file_io = FileIOBuilder::new("s3").build()?;
-        
+
         // Create table identifier
         let table_ident = TableIdent::from_strs(["default", "table"])?;
         // Load the static table
-        let static_table = StaticTable::from_metadata_file(&full_metadata_path, table_ident, file_io).await?;
+        let static_table =
+            StaticTable::from_metadata_file(&full_metadata_path, table_ident, file_io).await?;
 
         let iceberg_table = static_table.into_table();
-        
+
         Ok(iceberg_table)
     });
-    
+
     match result {
         Ok(iceberg_table) => {
             let table_ptr = Box::into_raw(Box::new(IcebergTableInternal {
@@ -206,21 +207,21 @@ pub extern "C" fn iceberg_table_scan(
         set_error("Null pointer provided".to_string());
         return IcebergResult::IcebergNullPointer;
     }
-    
+
     clear_error();
-    
+
     let table_ref = unsafe { &*(table as *const IcebergTableInternal) };
-    
+
     let scan_ptr = Box::into_raw(Box::new(IcebergScanInternal {
         table: Some(table_ref.table.clone()),
         columns: None,
         stream: None,
     }));
-    
+
     unsafe {
         *scan = scan_ptr as *mut IcebergScan;
     }
-    
+
     IcebergResult::IcebergOk
 }
 
@@ -234,20 +235,20 @@ pub extern "C" fn iceberg_scan_select_columns(
         set_error("Null pointer provided".to_string());
         return IcebergResult::IcebergNullPointer;
     }
-    
+
     clear_error();
-    
+
     let scan_ref = unsafe { &mut *(scan as *mut IcebergScanInternal) };
-    
+
     let mut columns = Vec::new();
-    
+
     for i in 0..num_columns {
         let col_ptr = unsafe { *column_names.add(i) };
         if col_ptr.is_null() {
             set_error("Null column name pointer".to_string());
             return IcebergResult::IcebergNullPointer;
         }
-        
+
         let col_str = unsafe {
             match CStr::from_ptr(col_ptr).to_str() {
                 Ok(s) => s,
@@ -257,12 +258,12 @@ pub extern "C" fn iceberg_scan_select_columns(
                 }
             }
         };
-        
+
         columns.push(col_str.to_string());
     }
-    
+
     scan_ref.columns = Some(columns);
-    
+
     IcebergResult::IcebergOk
 }
 
@@ -284,39 +285,37 @@ pub extern "C" fn iceberg_scan_next_batch(
         set_error("Null pointer provided".to_string());
         return IcebergResult::IcebergNullPointer;
     }
-    
+
     clear_error();
-    
+
     let scan_ref = unsafe { &mut *(scan as *mut IcebergScanInternal) };
-    
+
     // Initialize stream if not already done
     if scan_ref.stream.is_none() {
         if let Some(table) = &scan_ref.table {
             let columns = scan_ref.columns.clone();
             let stream_result = get_runtime().block_on(async {
                 let mut scan_builder = table.scan();
-                
+
                 if let Some(cols) = columns {
                     scan_builder = scan_builder.select(cols);
                 }
-                
+
                 match scan_builder.build() {
-                    Ok(table_scan) => {
-                        match table_scan.to_arrow().await {
-                            Ok(stream) => Ok(stream),
-                            Err(e) => {
-                                set_error(format!("Failed to create arrow stream: {}", e));
-                                Err(e)
-                            }
+                    Ok(table_scan) => match table_scan.to_arrow().await {
+                        Ok(stream) => Ok(stream),
+                        Err(e) => {
+                            set_error(format!("Failed to create arrow stream: {}", e));
+                            Err(e)
                         }
-                    }
+                    },
                     Err(e) => {
                         set_error(format!("Failed to build scan: {}", e));
                         Err(e)
                     }
                 }
             });
-            
+
             match stream_result {
                 Ok(stream) => {
                     scan_ref.stream = Some(Mutex::new(stream));
@@ -330,30 +329,28 @@ pub extern "C" fn iceberg_scan_next_batch(
             return IcebergResult::IcebergError;
         }
     }
-    
+
     // Get next batch from stream
     if let Some(stream_mutex) = &scan_ref.stream {
         let result = get_runtime().block_on(async {
             let mut stream = stream_mutex.lock().unwrap();
             stream.next().await
         });
-        
+
         match result {
-            Some(Ok(record_batch)) => {
-                match serialize_record_batch(record_batch) {
-                    Ok(arrow_batch) => {
-                        let batch_ptr = Box::into_raw(Box::new(arrow_batch));
-                        unsafe {
-                            *batch = batch_ptr;
-                        }
-                        IcebergResult::IcebergOk
+            Some(Ok(record_batch)) => match serialize_record_batch(record_batch) {
+                Ok(arrow_batch) => {
+                    let batch_ptr = Box::into_raw(Box::new(arrow_batch));
+                    unsafe {
+                        *batch = batch_ptr;
                     }
-                    Err(e) => {
-                        set_error(format!("Failed to serialize batch: {}", e));
-                        IcebergResult::IcebergError
-                    }
+                    IcebergResult::IcebergOk
                 }
-            }
+                Err(e) => {
+                    set_error(format!("Failed to serialize batch: {}", e));
+                    IcebergResult::IcebergError
+                }
+            },
             Some(Err(e)) => {
                 set_error(format!("Error reading batch: {}", e));
                 IcebergResult::IcebergError
