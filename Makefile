@@ -43,7 +43,7 @@ run-containers:
 	(cd docker && docker-compose up -d && sleep 10)
 
 # Run the integration test
-test: build-test run-containers
+test: build-test
 	@if [ -f ".env" ]; then \
 		echo "Loading environment variables from .env file..."; \
 		set -a; source .env; set +a; ./$(TEST_NAME); \
@@ -51,6 +51,8 @@ test: build-test run-containers
 		echo "No .env file found, running test without environment variables..."; \
 		./$(TEST_NAME) "$$(pwd)/$(LIB_NAME)"; \
 	fi
+
+stop-containers:
 	(cd docker && docker-compose down)
 
 # Clean build artifacts
