@@ -33,8 +33,6 @@ services:
       iceberg_net:
         aliases:
           - warehouse.minio
-    volumes:
-      - ../assets/minio/data:/data
     command: server --console-address ":9001" /data
   spark-iceberg:
     image: tabulario/spark-iceberg
@@ -65,6 +63,8 @@ services:
     container_name: mc
     networks:
       iceberg_net:
+    volumes:
+      - ../assets/tpch:/input
     environment:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
@@ -72,7 +72,8 @@ services:
     entrypoint: |
       /bin/sh -c "
       until (/usr/bin/mc alias set minio http://minio:9000 root password) do echo '...waiting...' && sleep 1; done;
+      /usr/bin/mc rm -r --force minio/warehouse
       /usr/bin/mc mb minio/warehouse;
-      /usr/bin/mc policy set public minio/warehouse;
+      /usr/bin/mc cp -r /input/tpch.sf01/ minio/warehouse/tpch.sf01/;
       tail -f /dev/null
       "

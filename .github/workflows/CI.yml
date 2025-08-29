@@ -49,7 +49,10 @@ jobs:
       - name: Initialize containers
         run: |
           docker network create iceberg_net
-          docker run -d --name minio --network=iceberg_net -p 9000:9000 -e MINIO_ROOT_USER=root -e MINIO_ROOT_PASSWORD=password -e MINIO_DOMAIN=minio -v ${{ github.workspace }}/assets/minio/data/warehouse:/data/warehouse minio/minio:latest server /data/warehouse
+          docker run -d --name minio --network=iceberg_net -p 9000:9000 -e MINIO_ROOT_USER=root -e MINIO_ROOT_PASSWORD=password -e MINIO_DOMAIN=minio -v ${{ github.workspace }}/assets/tpch:/input minio/minio:latest server /data/
+          docker exec minio mc alias set minio http://localhost:9000 root password
+          docker exec minio mc mb minio/warehouse
+          docker exec minio mc cp -r /input/tpch.sf01/ minio/warehouse/tpch.sf01/
           docker run -d --name rest --network=iceberg_net -p 8181:8181 -v ${{ github.workspace }}/assets/rest:/tmp -e AWS_ACCESS_KEY_ID=root -e AWS_SECRET_ACCESS_KEY=password -e AWS_ENDPOINT_URL=http://minio:9000 -e AWS_REGION=us-east-1 -e CATALOG_S3_ENDPOINT=http://minio:9000 -e CATALOG_WAREHOUSE=s3://warehouse -e CATALOG_IO__IMPL=org.apache.iceberg.aws.s3.S3FileIO apache/iceberg-rest-fixture
       - uses: actions/cache@v4
         with:
