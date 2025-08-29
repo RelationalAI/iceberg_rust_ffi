@@ -113,7 +113,6 @@ int main(int argc, char* argv[]) {
     IcebergScan* scan = NULL;
 
     // 1. Open table from folder path
-    //warehouse/tpch.sf01/lineitem/metadata/00001-82af8890-f380-45e9-a50a-8777fdd55e61.metadata.json
     const char* table_path = "s3://warehouse/tpch.sf01/nation";
     const char* metadata_path = "metadata/00001-4f9722c5-8764-4988-8063-874c3d453268.metadata.json";
     printf("Opening table at: %s\n", table_path);
