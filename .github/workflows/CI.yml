@@ -42,7 +42,7 @@ jobs:
           MINIO_ROOT_PASSWORD: password
           MINIO_DOMAIN: minio
         volumes:
-          - ${{ github.workspace }}/assets/minio/data:/data
+          - ${{ github.workspace }}/assets/minio/data/warehouse:/data/warehouse
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
