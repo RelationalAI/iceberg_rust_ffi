@@ -66,14 +66,16 @@ clean-all: clean
 # Show help
 help:
 	@echo "Available targets:"
-	@echo "  all            - Build and run integration test"
-	@echo "  generate-header- Generate C header file using cbindgen"
-	@echo "  build-lib      - Build only the Rust library"
-	@echo "  build-test     - Build the integration test (requires library)"
-	@echo "  build          - Build everything"
-	@echo "  test           - Build and run integration test"
-	@echo "  clean          - Clean build artifacts"
-	@echo "  clean-all      - Clean everything including target directory"
-	@echo "  help           - Show this help message"
+	@echo "  all             - Build and run integration test"
+	@echo "  generate-header - Generate C header file using cbindgen"
+	@echo "  build-lib       - Build only the Rust library"
+	@echo "  build-test      - Build the integration test (requires library)"
+	@echo "  build           - Build everything"
+	@echo "  test            - Build and run integration test"
+	@echo "  clean           - Clean build artifacts"
+	@echo "  stop-containers - Stop running Docker containers"
+	@echo "  run-containers  - Start Docker containers"
+	@echo "  clean-all       - Clean everything including target directory"
+	@echo "  help            - Show this help message"
 
 .PHONY: all generate-header build-lib build-test build test clean clean-all help stop-containers run-containers
