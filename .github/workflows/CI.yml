@@ -45,9 +45,7 @@ jobs:
               -e CATALOG_WAREHOUSE=s3://warehouse \
               -e CATALOG_IO__IMPL=org.apache.iceberg.aws.s3.S3FileIO apache/iceberg-rest-fixture
           post:
-            docker stop rest minio
-            docker rm rest minio
-            docker network rm iceberg_net
+            docker stop rest minio && docker rm rest minio && docker network rm iceberg_net
       - uses: actions/cache@v4
         with:
           path: |
@@ -63,5 +61,3 @@ jobs:
       - name: Build and test
         run: make all LIB_NAME="libiceberg_rust_ffi.so"
       # Make a post action to stop all containers
-      - name: Stop containers
-        run: |
