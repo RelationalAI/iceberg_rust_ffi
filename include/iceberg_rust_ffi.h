@@ -53,6 +53,7 @@ typedef struct {
     CResult result;
     ArrowBatch* batch;
     bool end_of_stream;
+    void* new_stream_ptr;
     char* error_message;
     const Context* context;
 } IcebergBatchResponse;
@@ -74,7 +75,9 @@ CResult iceberg_scan_select_columns(IcebergScan* scan, const char** column_names
 void iceberg_scan_free(IcebergScan* scan);
 
 // Async batch operations
+CResult iceberg_scan_wait_batch_with_storage(IcebergScan* scan, IcebergBatchResponse* response, const void* handle);
 CResult iceberg_scan_next_batch(IcebergScan* scan, IcebergBatchResponse* response, const void* handle);
+CResult iceberg_scan_store_batch_result(IcebergScan* scan, const IcebergBatchResponse* response);
 void iceberg_arrow_batch_free(ArrowBatch* batch);
 
 // Utility functions

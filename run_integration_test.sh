@@ -97,6 +97,10 @@ else
 fi
 
 print_status "Using library: $LIBRARY"
+# Pass through RUST_LOG environment variable if set
+if [ -n "$RUST_LOG" ]; then
+    export RUST_LOG="$RUST_LOG"
+fi
 if ./integration_test "$LIBRARY"; then
     echo "=========================================="
     print_success "Integration test completed successfully!"

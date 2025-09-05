@@ -4,12 +4,15 @@
 #include <dlfcn.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <string.h>
 
 // Global function pointers for new async API
 static int (*iceberg_init_runtime_func)(IcebergConfig config, int (*panic_callback)(), int (*result_callback)(const void*)) = NULL;
 static int (*iceberg_table_open_func)(const char*, const char*, IcebergTableResponse*, const void*) = NULL;
 static int (*iceberg_table_scan_func)(IcebergTable*, IcebergScanResponse*, const void*) = NULL;
+static int (*iceberg_scan_wait_batch_func)(IcebergScan*, IcebergBatchResponse*, const void*) = NULL;
 static int (*iceberg_scan_next_batch_func)(IcebergScan*, IcebergBatchResponse*, const void*) = NULL;
+static int (*iceberg_scan_store_batch_func)(IcebergScan*, const IcebergBatchResponse*) = NULL;
 static void (*iceberg_table_free_func)(IcebergTable*) = NULL;
 static void (*iceberg_scan_free_func)(IcebergScan*) = NULL;
 static void (*iceberg_arrow_batch_free_func)(ArrowBatch*) = NULL;
@@ -24,8 +27,11 @@ int panic_callback() {
     return 1;
 }
 
+volatile int async_completed = 0;
+
 int result_callback(const void* task) {
-    // Simple result callback - in a real implementation this would notify Julia
+    // Signal that async operation completed
+    async_completed = 1;
     return 0;
 }
 
@@ -64,9 +70,21 @@ int load_iceberg_library(const char* library_path) {
         return 0;
     }
 
+    iceberg_scan_wait_batch_func = (int (*)(IcebergScan*, IcebergBatchResponse*, const void*))dlsym(lib_handle, "iceberg_scan_wait_batch_with_storage");
+    if (!iceberg_scan_wait_batch_func) {
+        fprintf(stderr, "❌ Failed to resolve iceberg_scan_wait_batch_with_storage: %s\n", dlerror());
+        return 0;
+    }
+
     iceberg_scan_next_batch_func = (int (*)(IcebergScan*, IcebergBatchResponse*, const void*))dlsym(lib_handle, "iceberg_scan_next_batch");
     if (!iceberg_scan_next_batch_func) {
         fprintf(stderr, "❌ Failed to resolve iceberg_scan_next_batch: %s\n", dlerror());
+        return 0;
+    }
+
+    iceberg_scan_store_batch_func = (int (*)(IcebergScan*, const IcebergBatchResponse*))dlsym(lib_handle, "iceberg_scan_store_batch_result");
+    if (!iceberg_scan_store_batch_func) {
+        fprintf(stderr, "❌ Failed to resolve iceberg_scan_store_batch_result: %s\n", dlerror());
         return 0;
     }
 
@@ -107,11 +125,6 @@ void unload_iceberg_library() {
     }
 }
 
-// Helper function to wait for async operation to complete
-void wait_for_async_completion() {
-    // Simple busy wait - in a real implementation you'd use proper synchronization
-    usleep(100000); // 100ms
-}
 
 int main(int argc, char* argv[]) {
     printf("Starting Iceberg C API integration test with new async API...\n");
@@ -121,6 +134,14 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "Usage: %s <library_path>\n", argv[0]);
         return 1;
     }
+
+    // Check if environment variables are set
+    printf("Environment variables:\n");
+    printf("  AWS_ACCESS_KEY_ID: %s\n", getenv("AWS_ACCESS_KEY_ID") ? "SET" : "NOT SET");
+    printf("  AWS_SECRET_ACCESS_KEY: %s\n", getenv("AWS_SECRET_ACCESS_KEY") ? "SET" : "NOT SET");
+    printf("  AWS_DEFAULT_REGION: %s\n", getenv("AWS_DEFAULT_REGION") ? getenv("AWS_DEFAULT_REGION") : "NOT SET");
+    printf("  AWS_ENDPOINT_URL: %s\n", getenv("AWS_ENDPOINT_URL") ? getenv("AWS_ENDPOINT_URL") : "NOT SET");
+
 
     // Load the library
     if (!load_iceberg_library(argv[1])) {
@@ -146,7 +167,8 @@ int main(int argc, char* argv[]) {
     printf("Using metadata file: %s\n", metadata_path);
 
     IcebergTableResponse table_response = {0};
-    result = iceberg_table_open_func(table_path, metadata_path, &table_response, NULL);
+    async_completed = 0;  // Reset flag
+    result = iceberg_table_open_func(table_path, metadata_path, &table_response, &async_completed);
     
     if (result != CRESULT_OK) {
         printf("❌ Failed to initiate table open operation\n");
@@ -156,11 +178,21 @@ int main(int argc, char* argv[]) {
     
     // Wait for async operation to complete
     printf("⏳ Waiting for table open to complete...\n");
-    wait_for_async_completion();
+    int timeout = 100;  // 10 second timeout
+    while (!async_completed && timeout > 0) {
+        usleep(100000);  // 100ms
+        timeout--;
+    }
+    
+    if (!async_completed) {
+        printf("❌ Async operation timed out\n");
+        unload_iceberg_library();
+        return 1;
+    }
     
     // Check if the operation was successful
     if (table_response.result != CRESULT_OK) {
-        printf("❌ Failed to open table");
+        printf("❌ Failed to open table (result=%d)", table_response.result);
         if (table_response.error_message) {
             printf(": %s", table_response.error_message);
             iceberg_destroy_cstring_func(table_response.error_message);
@@ -180,7 +212,8 @@ int main(int argc, char* argv[]) {
 
     // 3. Create a scan using async API
     IcebergScanResponse scan_response = {0};
-    result = iceberg_table_scan_func(table_response.table, &scan_response, NULL);
+    async_completed = 0;  // Reset flag
+    result = iceberg_table_scan_func(table_response.table, &scan_response, &async_completed);
     
     if (result != CRESULT_OK) {
         printf("❌ Failed to initiate scan creation\n");
@@ -191,7 +224,18 @@ int main(int argc, char* argv[]) {
     
     // Wait for async operation to complete
     printf("⏳ Waiting for scan creation to complete...\n");
-    wait_for_async_completion();
+    timeout = 100;  // 10 second timeout
+    while (!async_completed && timeout > 0) {
+        usleep(100000);  // 100ms
+        timeout--;
+    }
+    
+    if (!async_completed) {
+        printf("❌ Scan creation async operation timed out\n");
+        iceberg_table_free_func(table_response.table);
+        unload_iceberg_library();
+        return 1;
+    }
     
     // Check if the operation was successful
     if (scan_response.result != CRESULT_OK) {
@@ -215,56 +259,83 @@ int main(int argc, char* argv[]) {
     
     printf("✅ Scan created successfully\n");
 
-    // 4. Try to get a batch using async API  
-    printf("Attempting to get first batch...\n");
+    // 4. Try to get a batch using new two-step async API  
+    printf("Step 1: Waiting for batch asynchronously...\n");
     IcebergBatchResponse batch_response = {0};
-    result = iceberg_scan_next_batch_func(scan_response.scan, &batch_response, NULL);
+    async_completed = 0;  // Reset flag
+    result = iceberg_scan_wait_batch_func(scan_response.scan, &batch_response, &async_completed);
+    
+    if (result == CRESULT_OK) {
+        // Wait for async operation to complete
+        timeout = 100;  // 10 second timeout
+        while (!async_completed && timeout > 0) {
+            usleep(100000);  // 100ms
+            timeout--;
+        }
+        
+        if (!async_completed) {
+            printf("❌ Batch wait async operation timed out\n");
+            iceberg_scan_free_func(scan_response.scan);
+            iceberg_table_free_func(table_response.table);
+            unload_iceberg_library();
+            return 1;
+        }
+    }
     
     if (result != CRESULT_OK) {
-        printf("❌ Failed to initiate batch retrieval\n");
-        iceberg_scan_free_func(scan_response.scan);
-        iceberg_table_free_func(table_response.table);
-        unload_iceberg_library();
-        return 1;
-    }
-    
-    // Wait for async operation to complete
-    printf("⏳ Waiting for batch retrieval to complete...\n");
-    wait_for_async_completion();
-    
-    // Check if the operation was successful
-    if (batch_response.result != CRESULT_OK) {
-        printf("❌ Failed to get batch");
+        printf("❌ Failed to wait for batch\n");
         if (batch_response.error_message) {
-            printf(": %s", batch_response.error_message);
+            printf("   Error: %s\n", batch_response.error_message);
             iceberg_destroy_cstring_func(batch_response.error_message);
         }
-        printf("\n");
         iceberg_scan_free_func(scan_response.scan);
         iceberg_table_free_func(table_response.table);
         unload_iceberg_library();
         return 1;
     }
     
-    if (batch_response.end_of_stream) {
+    // Store the batch result in the scan
+    result = iceberg_scan_store_batch_func(scan_response.scan, &batch_response);
+    if (result != CRESULT_OK) {
+        printf("❌ Failed to store batch result\n");
+        iceberg_scan_free_func(scan_response.scan);
+        iceberg_table_free_func(table_response.table);
+        unload_iceberg_library();
+        return 1;
+    }
+    
+    printf("Step 2: Retrieving stored batch synchronously...\n");
+    IcebergBatchResponse sync_batch_response = {0};
+    result = iceberg_scan_next_batch_func(scan_response.scan, &sync_batch_response, NULL);
+    
+    // Check if the operation was successful
+    if (result != CRESULT_OK) {
+        printf("❌ Failed to get stored batch\n");
+        iceberg_scan_free_func(scan_response.scan);
+        iceberg_table_free_func(table_response.table);
+        unload_iceberg_library();
+        return 1;
+    }
+    
+    if (sync_batch_response.end_of_stream) {
         printf("✅ Reached end of stream (table might be empty)\n");
-    } else if (batch_response.batch) {
+    } else if (sync_batch_response.batch) {
         printf("✅ Successfully retrieved batch!\n");
         printf("📦 Batch details:\n");
-        printf("   - Serialized size: %zu bytes\n", batch_response.batch->length);
-        printf("   - Data pointer: %p\n", (void*)batch_response.batch->data);
+        printf("   - Serialized size: %zu bytes\n", sync_batch_response.batch->length);
+        printf("   - Data pointer: %p\n", (void*)sync_batch_response.batch->data);
         printf("   - First few bytes: ");
         
         // Print first 8 bytes as hex for verification
-        size_t print_len = (batch_response.batch->length < 8) ? batch_response.batch->length : 8;
+        size_t print_len = (sync_batch_response.batch->length < 8) ? sync_batch_response.batch->length : 8;
         for (size_t i = 0; i < print_len; i++) {
-            printf("%02x ", batch_response.batch->data[i]);
+            printf("%02x ", sync_batch_response.batch->data[i]);
         }
         printf("\n");
         printf("   → Arrow IPC bytes ready for Julia Arrow.Stream()\n");
         
         // Free the batch
-        iceberg_arrow_batch_free_func(batch_response.batch);
+        iceberg_arrow_batch_free_func(sync_batch_response.batch);
     } else {
         printf("⚠️  No batch data returned\n");
     }
