@@ -1,5 +1,4 @@
-use std::ffi::{CStr, CString};
-use std::os::raw::c_char;
+use std::ffi::{CStr, CString, c_char, c_void};
 use std::ptr;
 use std::sync::Mutex;
 use std::sync::OnceLock;
@@ -11,12 +10,43 @@ use futures::stream::StreamExt;
 use iceberg::io::FileIOBuilder;
 use iceberg::table::StaticTable;
 use iceberg::TableIdent;
-use std::env;
 use tokio::runtime::Runtime;
 
 // cbindgen annotations
 #[allow(non_camel_case_types)]
 #[allow(non_snake_case)]
+
+// Global runtime using OnceLock for thread safety
+static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+
+// Configuration for iceberg runtime - much simpler than object_store_ffi
+#[derive(Copy, Clone)]
+#[repr(C)]
+pub struct IcebergConfig {
+    n_threads: usize,
+}
+
+impl Default for IcebergConfig {
+    fn default() -> Self {
+        IcebergConfig {
+            n_threads: 0, // 0 means use tokio's default
+        }
+    }
+}
+
+// Result type
+#[repr(C)]
+pub enum IcebergResult {
+    IcebergOk = 0,
+    IcebergError = -1,
+    IcebergNullPointer = -2,
+    IcebergIoError = -3,
+    IcebergInvalidTable = -4,
+    IcebergEndOfStream = -5,
+}
+
+// Callback types for Julia integration
+type PanicCallback = unsafe extern "C" fn() -> i32;
 
 // Internal structures for Rust implementation
 struct IcebergTableInternal {
@@ -27,15 +57,6 @@ struct IcebergScanInternal {
     table: Option<iceberg::table::Table>,
     columns: Option<Vec<String>>,
     stream: Option<Mutex<futures::stream::BoxStream<'static, Result<RecordBatch, iceberg::Error>>>>,
-}
-
-// Global Tokio runtime using OnceLock for thread safety
-// TODO: Might want to share tokio runtime between here and object_store_ffi.jl, e.g.,
-// by passing object store in and using its runtime.
-static RUNTIME: OnceLock<Runtime> = OnceLock::new();
-
-fn get_runtime() -> &'static Runtime {
-    RUNTIME.get_or_init(|| Runtime::new().expect("Failed to create Tokio runtime"))
 }
 
 // Thread-local error storage
@@ -55,6 +76,10 @@ fn clear_error() {
     });
 }
 
+fn get_runtime() -> &'static Runtime {
+    RUNTIME.get().expect("iceberg runtime not initialized - call iceberg_init_runtime first")
+}
+
 // C API structures
 #[repr(C)]
 pub struct IcebergTable {
@@ -70,21 +95,10 @@ pub struct IcebergScan {
 pub struct ArrowBatch {
     pub data: *const u8,
     pub length: usize,
-    pub rust_ptr: *mut std::ffi::c_void,
-}
-
-#[repr(C)]
-pub enum IcebergResult {
-    IcebergOk = 0,
-    IcebergError = -1,
-    IcebergNullPointer = -2,
-    IcebergIoError = -3,
-    IcebergInvalidTable = -4,
-    IcebergEndOfStream = -5,
+    pub rust_ptr: *mut c_void,
 }
 
 // Helper function to create ArrowBatch from RecordBatch
-// TODO: This should be zero-copy...
 fn serialize_record_batch(batch: RecordBatch) -> Result<ArrowBatch> {
     let buffer = Vec::new();
     let mut stream_writer = StreamWriter::try_new(buffer, &batch.schema())?;
@@ -95,13 +109,70 @@ fn serialize_record_batch(batch: RecordBatch) -> Result<ArrowBatch> {
     let boxed_data = Box::new(serialized_data);
     let data_ptr = boxed_data.as_ptr();
     let length = boxed_data.len();
-    let rust_ptr = Box::into_raw(boxed_data) as *mut std::ffi::c_void;
+    let rust_ptr = Box::into_raw(boxed_data) as *mut c_void;
 
     Ok(ArrowBatch {
         data: data_ptr,
         length,
         rust_ptr,
     })
+}
+
+// Initialize iceberg runtime - modeled after object_store_ffi but simpler
+#[no_mangle]
+pub extern "C" fn iceberg_init_runtime(
+    config: IcebergConfig,
+    panic_callback: PanicCallback,
+) -> IcebergResult {
+    // Set up panic hook
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        prev(info);
+        unsafe { panic_callback() };
+    }));
+
+    // Set up logging if not already configured
+    if std::env::var("RUST_LOG").is_err() {
+        unsafe { std::env::set_var("RUST_LOG", "iceberg_rust_ffi=warn,iceberg=warn") }
+    }
+
+    // Initialize tracing subscriber
+    let _ = tracing_subscriber::fmt::try_init();
+
+    // Build tokio runtime
+    let mut rt_builder = tokio::runtime::Builder::new_multi_thread();
+    rt_builder.enable_all();
+
+    // Configure Julia thread adoption if needed
+    rt_builder.on_thread_start(|| {
+        // Note: We might need Julia thread adoption here in the future
+        // For now, we'll keep it simple
+    });
+
+    // Set number of worker threads
+    if config.n_threads > 0 {
+        rt_builder.worker_threads(config.n_threads);
+    }
+
+    // Create and store the runtime
+    let runtime = rt_builder.build()
+        .map_err(|e| {
+            set_error(format!("Failed to create tokio runtime: {}", e));
+            e
+        }).ok();
+
+    match runtime {
+        Some(rt) => {
+            match RUNTIME.set(rt) {
+                Ok(_) => IcebergResult::IcebergOk,
+                Err(_) => {
+                    set_error("Runtime was already initialized".to_string());
+                    IcebergResult::IcebergError
+                }
+            }
+        },
+        None => IcebergResult::IcebergError
+    }
 }
 
 // C API functions
@@ -138,37 +209,28 @@ pub extern "C" fn iceberg_table_open(
         }
     };
 
-    // TODO: Perhaps we should have full asynchronicity that includes the caller code (e.g. Julia) instead of blocking here.
+    // Use the iceberg runtime for async operations
     let result: Result<iceberg::table::Table, anyhow::Error> = get_runtime().block_on(async {
-        // println!("DEBUG: Table path: {}", path_str);
-        // println!("DEBUG: Metadata path: {}", metadata_path_str);
-
-        // Construct the full S3 path by combining table_path and metadata_path
+        // Construct the full metadata path
         let full_metadata_path = if metadata_path_str.starts_with('/') {
-            // If metadata_path starts with /, it's absolute, so use it as is
             metadata_path_str.to_string()
         } else {
-            // Otherwise, combine table_path with metadata_path
             let table_path_trimmed = path_str.trim_end_matches('/');
             let metadata_path_trimmed = metadata_path_str.trim_start_matches('/');
             format!("{}/{}", table_path_trimmed, metadata_path_trimmed)
         };
-
-        // println!("DEBUG: Full metadata file path: {}", full_metadata_path);
-
-        let _ = env::var("AWS_ACCESS_KEY_ID").expect("AWS_ACCESS_KEY_ID must be set");
 
         // Create file IO for S3
         let file_io = FileIOBuilder::new("s3").build()?;
 
         // Create table identifier
         let table_ident = TableIdent::from_strs(["default", "table"])?;
+
         // Load the static table
         let static_table =
             StaticTable::from_metadata_file(&full_metadata_path, table_ident, file_io).await?;
 
         let iceberg_table = static_table.into_table();
-
         Ok(iceberg_table)
     });
 
@@ -294,6 +356,7 @@ pub extern "C" fn iceberg_scan_next_batch(
     if scan_ref.stream.is_none() {
         if let Some(table) = &scan_ref.table {
             let columns = scan_ref.columns.clone();
+
             let stream_result = get_runtime().block_on(async {
                 let mut scan_builder = table.scan();
 
@@ -393,4 +456,15 @@ pub extern "C" fn iceberg_error_message() -> *const c_char {
             ptr::null()
         }
     })
+}
+
+// Utility function for cleanup
+#[no_mangle]
+pub extern "C" fn iceberg_destroy_cstring(string: *mut c_char) -> IcebergResult {
+    if !string.is_null() {
+        unsafe {
+            let _ = CString::from_raw(string);
+        }
+    }
+    IcebergResult::IcebergOk
 }
