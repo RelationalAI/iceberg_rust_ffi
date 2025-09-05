@@ -84,7 +84,20 @@ fi
 # Step 3: Run the integration test
 print_status "Running integration test..."
 echo "=========================================="
-if ./integration_test; then
+
+# Determine the exact library filename
+LIBRARY=""
+if [ -f "$LIB_PATH/libiceberg_rust_ffi.dylib" ]; then
+    LIBRARY="$LIB_PATH/libiceberg_rust_ffi.dylib"
+elif [ -f "$LIB_PATH/libiceberg_rust_ffi.so" ]; then
+    LIBRARY="$LIB_PATH/libiceberg_rust_ffi.so"
+else
+    print_error "Could not find dynamic library"
+    exit 1
+fi
+
+print_status "Using library: $LIBRARY"
+if ./integration_test "$LIBRARY"; then
     echo "=========================================="
     print_success "Integration test completed successfully!"
 else

@@ -12,48 +12,77 @@ extern "C" {
 // Forward declarations
 typedef struct IcebergTable IcebergTable;
 typedef struct IcebergScan IcebergScan;
+typedef struct Context Context;
+
+// Configuration for iceberg runtime
+typedef struct {
+    size_t n_threads;
+} IcebergConfig;
+
+// Result types from object_store_ffi
+typedef enum {
+    CRESULT_OK = 0,
+    CRESULT_ERROR = -1,
+    CRESULT_BACKOFF = -2,
+    CRESULT_UNINITIALIZED = -3
+} CResult;
 
 // Arrow batch as serialized bytes
-typedef struct ArrowBatch {
-    const uint8_t* data;      // Pointer to serialized Arrow IPC data
-    size_t length;            // Length of the data in bytes
-    void* rust_ptr;           // Internal Rust pointer for memory management
+typedef struct {
+    const uint8_t* data;
+    size_t length;
+    void* rust_ptr;
 } ArrowBatch;
 
-typedef enum {
-    ICEBERG_OK = 0,
-    ICEBERG_ERROR = -1,
-    ICEBERG_NULL_POINTER = -2,
-    ICEBERG_IO_ERROR = -3,
-    ICEBERG_INVALID_TABLE = -4,
-    ICEBERG_END_OF_STREAM = -5
-} IcebergResult;
+// Response structures for async operations
+typedef struct {
+    CResult result;
+    IcebergTable* table;
+    char* error_message;
+    const Context* context;
+} IcebergTableResponse;
 
-// Table operations
-IcebergResult iceberg_table_open(const char* table_path, const char* metadata_path, IcebergTable** table);
+typedef struct {
+    CResult result;
+    IcebergScan* scan;
+    char* error_message;
+    const Context* context;
+} IcebergScanResponse;
+
+typedef struct {
+    CResult result;
+    ArrowBatch* batch;
+    bool end_of_stream;
+    char* error_message;
+    const Context* context;
+} IcebergBatchResponse;
+
+// Callback types
+typedef int (*PanicCallback)();
+typedef int (*ResultCallback)(const void* task);
+
+// Runtime initialization
+CResult iceberg_init_runtime(IcebergConfig config, PanicCallback panic_callback, ResultCallback result_callback);
+
+// Async table operations
+CResult iceberg_table_open(const char* table_path, const char* metadata_path, IcebergTableResponse* response, const void* handle);
 void iceberg_table_free(IcebergTable* table);
 
-// Scan operations
-IcebergResult iceberg_table_scan(IcebergTable* table, IcebergScan** scan);
-IcebergResult iceberg_scan_select_columns(IcebergScan* scan, const char** column_names, size_t num_columns);
+// Async scan operations
+CResult iceberg_table_scan(IcebergTable* table, IcebergScanResponse* response, const void* handle);
+CResult iceberg_scan_select_columns(IcebergScan* scan, const char** column_names, size_t num_columns);
 void iceberg_scan_free(IcebergScan* scan);
 
-// Arrow batch operations
-IcebergResult iceberg_scan_next_batch(IcebergScan* scan, ArrowBatch** batch);
+// Async batch operations
+CResult iceberg_scan_next_batch(IcebergScan* scan, IcebergBatchResponse* response, const void* handle);
 void iceberg_arrow_batch_free(ArrowBatch* batch);
 
-// Error handling
-const char* iceberg_error_message();
+// Utility functions
+CResult iceberg_destroy_cstring(char* string);
+const char* iceberg_current_metrics();
 
-// Function pointer typedefs for dynamic loading
-typedef IcebergResult (*iceberg_table_open_func_t)(const char* table_path, const char* metadata_path, IcebergTable** table);
-typedef void (*iceberg_table_free_func_t)(IcebergTable* table);
-typedef IcebergResult (*iceberg_table_scan_func_t)(IcebergTable* table, IcebergScan** scan);
-typedef IcebergResult (*iceberg_scan_select_columns_func_t)(IcebergScan* scan, const char** column_names, size_t num_columns);
-typedef void (*iceberg_scan_free_func_t)(IcebergScan* scan);
-typedef IcebergResult (*iceberg_scan_next_batch_func_t)(IcebergScan* scan, ArrowBatch** batch);
-typedef void (*iceberg_arrow_batch_free_func_t)(ArrowBatch* batch);
-typedef const char* (*iceberg_error_message_func_t)();
+// Backward compatibility
+const char* iceberg_error_message();
 
 #ifdef __cplusplus
 }

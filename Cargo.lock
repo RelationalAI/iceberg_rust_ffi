@@ -1578,10 +1578,15 @@ dependencies = [
  "arrow-array",
  "arrow-ipc",
  "cbindgen",
+ "futures",
  "iceberg",
  "libc",
  "object_store_ffi",
+ "once_cell",
  "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -3774,6 +3779,7 @@ dependencies = [
  "io-uring",
  "libc",
  "mio",
+ "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "slab",
