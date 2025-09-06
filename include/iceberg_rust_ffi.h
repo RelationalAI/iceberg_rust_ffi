@@ -19,7 +19,7 @@ typedef struct {
     size_t n_threads;
 } IcebergConfig;
 
-// Result types from object_store_ffi
+// Result types
 typedef enum {
     CRESULT_OK = 0,
     CRESULT_ERROR = -1,
@@ -53,10 +53,16 @@ typedef struct {
     CResult result;
     ArrowBatch* batch;
     bool end_of_stream;
-    void* new_stream_ptr;
     char* error_message;
     const Context* context;
 } IcebergBatchResponse;
+
+typedef struct {
+    CResult result;
+    bool success;
+    char* error_message;
+    const Context* context;
+} IcebergBoolResponse;
 
 // Callback types
 typedef int (*PanicCallback)();
@@ -74,10 +80,10 @@ CResult iceberg_table_scan(IcebergTable* table, IcebergScanResponse* response, c
 CResult iceberg_scan_select_columns(IcebergScan* scan, const char** column_names, size_t num_columns);
 void iceberg_scan_free(IcebergScan* scan);
 
-// Async batch operations
-CResult iceberg_scan_wait_batch_with_storage(IcebergScan* scan, IcebergBatchResponse* response, const void* handle);
+// New simplified async API
+CResult iceberg_scan_init_stream(IcebergScan* scan, IcebergBoolResponse* response, const void* handle);
+CResult iceberg_scan_next_batch_from_stream(IcebergScan* scan, IcebergBoolResponse* response, const void* handle);
 CResult iceberg_scan_next_batch(IcebergScan* scan, IcebergBatchResponse* response, const void* handle);
-CResult iceberg_scan_store_batch_result(IcebergScan* scan, const IcebergBatchResponse* response);
 void iceberg_arrow_batch_free(ArrowBatch* batch);
 
 // Utility functions

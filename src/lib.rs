@@ -22,6 +22,38 @@ use object_store_ffi::{
 pub struct IcebergStream {
     pub stream: AsyncMutex<futures::stream::BoxStream<'static, Result<RecordBatch, iceberg::Error>>>,
 }
+unsafe impl Send for IcebergStream {}
+
+// Unified response type for operations that return a boolean status
+#[repr(C)]
+pub struct IcebergBoolResponse {
+    result: CResult,
+    success: bool,
+    error_message: *mut c_char,
+    context: *const Context,
+}
+
+unsafe impl Send for IcebergBoolResponse {}
+
+impl RawResponse for IcebergBoolResponse {
+    type Payload = bool;
+    
+    fn result_mut(&mut self) -> &mut CResult {
+        &mut self.result
+    }
+    
+    fn context_mut(&mut self) -> &mut *const Context {
+        &mut self.context
+    }
+    
+    fn error_message_mut(&mut self) -> &mut *mut c_char {
+        &mut self.error_message
+    }
+    
+    fn set_payload(&mut self, payload: Option<Self::Payload>) {
+        self.success = payload.unwrap_or(false);
+    }
+}
 
 // cbindgen annotations
 #[allow(non_camel_case_types)]
@@ -59,6 +91,12 @@ pub struct IcebergScan {
     pub current_batch: Option<*mut ArrowBatch>,
     pub end_of_stream: bool,
 }
+
+// SAFETY: IcebergScan can be safely sent between threads because:
+// - table: iceberg::table::Table is Send
+// - columns: Vec<String> is Send  
+// - stream, current_batch: raw pointers are Send by our design (we control access)
+unsafe impl Send for IcebergScan {}
 
 #[repr(C)]
 pub struct ArrowBatch {
@@ -131,7 +169,6 @@ pub struct IcebergBatchResponse {
     result: CResult,
     batch: *mut ArrowBatch,
     end_of_stream: bool,
-    new_stream_ptr: *mut IcebergStream,
     error_message: *mut c_char,
     context: *const Context,
 }
@@ -139,7 +176,7 @@ pub struct IcebergBatchResponse {
 unsafe impl Send for IcebergBatchResponse {}
 
 impl RawResponse for IcebergBatchResponse {
-    type Payload = (*mut ArrowBatch, bool, Option<*mut IcebergStream>);
+    type Payload = (*mut ArrowBatch, bool);
     fn result_mut(&mut self) -> &mut CResult {
         &mut self.result
     }
@@ -151,15 +188,13 @@ impl RawResponse for IcebergBatchResponse {
     }
     fn set_payload(&mut self, payload: Option<Self::Payload>) {
         match payload {
-            Some((batch_ptr, is_end, stream_ptr)) => {
+            Some((batch_ptr, is_end)) => {
                 self.batch = batch_ptr;
                 self.end_of_stream = is_end;
-                self.new_stream_ptr = stream_ptr.unwrap_or(ptr::null_mut());
             }
             None => {
                 self.batch = ptr::null_mut();
-                self.end_of_stream = false;
-                self.new_stream_ptr = ptr::null_mut();
+                self.end_of_stream = true;
             }
         }
     }
@@ -314,169 +349,118 @@ export_runtime_op!(
     table: *mut IcebergTable
 );
 
-// Async function to wait for next batch with proper stream persistence
+// Async function to initialize stream without getting first batch
 export_runtime_op!(
-    iceberg_scan_wait_batch,
-    IcebergBatchResponse,
+    iceberg_scan_init_stream,
+    IcebergBoolResponse,
     || {
         if scan.is_null() {
             return Err(anyhow::anyhow!("Null scan pointer provided"));
         }
         let scan_ref = unsafe { &*scan };
         
-        // Check if we already have a stream or need to create one
-        let need_new_stream = scan_ref.stream.is_none();
+        // Only initialize if we don't already have a stream
+        if scan_ref.stream.is_some() {
+            return Err(anyhow::anyhow!("Stream already exists"));
+        }
         
         if let Some(table) = &scan_ref.table {
             let columns = scan_ref.columns.clone();
             let table_clone = table.clone();
-            Ok((table_clone, columns, need_new_stream))
+            let scan_ref = unsafe { &mut *(scan as *mut IcebergScan) };
+            Ok((table_clone, columns, scan_ref))
         } else {
             Err(anyhow::anyhow!("Table not available"))
         }
     },
     scan_data,
     async {
-        let (table, columns, need_new_stream) = scan_data;
+        let (table, columns, scan_ref) = scan_data;
         
-        if need_new_stream {
-            // Create new stream and get first batch
-            let mut scan_builder = table.scan();
-            if let Some(cols) = columns {
-                scan_builder = scan_builder.select(cols);
-            }
-            
-            let table_scan = scan_builder.build()?;
-            let mut stream = table_scan.to_arrow().await?;
-            
-            // Get first batch from stream
-            match stream.next().await {
-                Some(Ok(record_batch)) => {
-                    tracing::info!("Successfully got first batch with {} rows, {} columns", 
-                                  record_batch.num_rows(), record_batch.num_columns());
-                    let arrow_batch = serialize_record_batch(record_batch)?;
-                    let batch_ptr = Box::into_raw(Box::new(arrow_batch));
-                    
-                    // Create stream wrapper and store it
-                    let iceberg_stream = Box::new(IcebergStream {
-                        stream: AsyncMutex::new(stream),
-                    });
-                    let stream_ptr = Box::into_raw(iceberg_stream);
-                    
-                    tracing::info!("Created batch and stream pointers successfully");
-                    Ok((batch_ptr, false, Some(stream_ptr)))
-                }
-                Some(Err(e)) => {
-                    tracing::error!("Error reading first batch: {}", e);
-                    Err(anyhow::anyhow!("Error reading batch: {}", e))
-                }
-                None => {
-                    // End of stream immediately
-                    tracing::warn!("Stream ended immediately - no data found");
-                    Ok((ptr::null_mut(), true, None))
-                }
-            }
-        } else {
-            // This case means we need to use an existing stream
-            // We'll handle this case differently - return a marker that indicates existing stream usage
-            Err(anyhow::anyhow!("USE_EXISTING_STREAM"))
+        // Create new stream but don't get first batch
+        let mut scan_builder = table.scan();
+        if let Some(cols) = columns {
+            scan_builder = scan_builder.select(cols);
         }
+        
+        let table_scan = scan_builder.build()?;
+        let stream = table_scan.to_arrow().await?;
+        
+        // Create stream wrapper
+        let iceberg_stream = Box::new(IcebergStream {
+            stream: AsyncMutex::new(stream),
+        });
+        let stream_ptr = Box::into_raw(iceberg_stream);
+        
+        tracing::info!("Created stream pointer successfully: {:?}", stream_ptr);
+        
+        // Store stream in scan
+        scan_ref.stream = Some(stream_ptr);
+        
+        // Return success flag
+        Ok::<bool, anyhow::Error>(true)
     },
     scan: *mut IcebergScan
 );
 
 // Async function to get next batch from existing stream
 export_runtime_op!(
-    iceberg_scan_wait_batch_existing,
-    IcebergBatchResponse,
+    iceberg_scan_next_batch_from_stream,
+    IcebergBoolResponse,
     || {
         if scan.is_null() {
             return Err(anyhow::anyhow!("Null scan pointer provided"));
         }
         let scan_ref = unsafe { &*scan };
         
+        tracing::debug!("Checking for stream in scan, current stream pointer: {:?}", scan_ref.stream);
+        
         if let Some(stream_ptr) = scan_ref.stream {
-            // Return the stream pointer - we'll dereference it in the async block
-            Ok(stream_ptr as usize)  // Convert to usize to make it Send
+            tracing::debug!("Found stream pointer: {:?}", stream_ptr);
+            let scan_ref = unsafe { &mut *(scan as *mut IcebergScan) };
+            let stream_ref = unsafe { &*stream_ptr };
+            Ok((stream_ref, scan_ref))
         } else {
+            tracing::error!("No stream available in scan");
             Err(anyhow::anyhow!("No stream available"))
         }
     },
-    stream_ptr_addr,
+    stream_data,
     async {
-        let stream_ptr = stream_ptr_addr as *mut IcebergStream;
-        let stream_ref = unsafe { &*stream_ptr };
+        let (stream_ref, scan_ref) = stream_data;
         
         let mut stream_guard = stream_ref.stream.lock().await;
         
-        match stream_guard.next().await {
+        let result = match stream_guard.next().await {
             Some(Ok(record_batch)) => {
                 let arrow_batch = serialize_record_batch(record_batch)?;
                 let batch_ptr = Box::into_raw(Box::new(arrow_batch));
-                Ok((batch_ptr, false, None))
+                (batch_ptr, false)
             }
-            Some(Err(e)) => Err(anyhow::anyhow!("Error reading batch: {}", e)),
+            Some(Err(e)) => return Err(anyhow::anyhow!("Error reading batch: {}", e)),
             None => {
                 // End of stream
-                Ok((ptr::null_mut(), true, None))
+                (ptr::null_mut(), true)
             }
+        };
+        
+        // Auto-store the result in scan
+        let (batch_ptr, end_of_stream) = result;
+        
+        if batch_ptr.is_null() {
+            tracing::warn!("Auto-storing NULL batch pointer - end of stream");
+            scan_ref.current_batch = None;
+        } else {
+            tracing::info!("Auto-storing batch pointer {:?} in scan", batch_ptr);
+            scan_ref.current_batch = Some(batch_ptr);
         }
+        scan_ref.end_of_stream = end_of_stream;
+        
+        // Return only the end_of_stream status
+        Ok(end_of_stream)
     },
     scan: *mut IcebergScan
 );
-
-// Simplified storage function - just call the right async function
-#[no_mangle]
-pub extern "C" fn iceberg_scan_wait_batch_with_storage(
-    scan: *mut IcebergScan,
-    response: *mut IcebergBatchResponse,
-    handle: *const c_void,
-) -> CResult {
-    let scan_ref = unsafe { &*scan };
-    
-    // Check if we need to use existing stream or create new one
-    if scan_ref.stream.is_none() {
-        // Call the async function for new stream
-        tracing::info!("Calling async function for new stream");
-        iceberg_scan_wait_batch(scan, response, handle)
-    } else {
-        // Call the async function for existing stream
-        tracing::info!("Calling async function for existing stream");
-        iceberg_scan_wait_batch_existing(scan, response, handle)
-    }
-}
-
-// Helper function to store the batch result in the scan after async completion
-#[no_mangle]
-pub extern "C" fn iceberg_scan_store_batch_result(
-    scan: *mut IcebergScan,
-    response: *const IcebergBatchResponse,
-) -> CResult {
-    if scan.is_null() || response.is_null() {
-        return CResult::Error;
-    }
-
-    let scan_ref = unsafe { &mut *scan };
-    let response_ref = unsafe { &*response };
-    
-    // Store batch in scan
-    if response_ref.batch.is_null() {
-        tracing::warn!("Storing NULL batch pointer - end of stream or error");
-        scan_ref.current_batch = None;
-    } else {
-        tracing::info!("Storing batch pointer {:?} in scan", response_ref.batch);
-        scan_ref.current_batch = Some(response_ref.batch);
-    }
-    scan_ref.end_of_stream = response_ref.end_of_stream;
-    
-    // If a new stream was created, store its pointer in scan
-    if !response_ref.new_stream_ptr.is_null() && scan_ref.stream.is_none() {
-        tracing::info!("Storing new stream pointer {:?} in scan", response_ref.new_stream_ptr);
-        scan_ref.stream = Some(response_ref.new_stream_ptr);
-    }
-    
-    CResult::Ok
-}
 
 // Synchronous function to get the current batch from the scan
 #[no_mangle]
@@ -497,7 +481,6 @@ pub extern "C" fn iceberg_scan_next_batch(
         result: CResult::Ok,
         batch: ptr::null_mut(),
         end_of_stream: false,
-        new_stream_ptr: ptr::null_mut(),
         error_message: ptr::null_mut(),
         context: ptr::null(),
     };
