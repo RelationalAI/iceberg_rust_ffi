@@ -164,41 +164,6 @@ impl RawResponse for IcebergScanResponse {
     }
 }
 
-#[repr(C)]
-pub struct IcebergBatchResponse {
-    result: CResult,
-    batch: *mut ArrowBatch,
-    end_of_stream: bool,
-    error_message: *mut c_char,
-    context: *const Context,
-}
-
-unsafe impl Send for IcebergBatchResponse {}
-
-impl RawResponse for IcebergBatchResponse {
-    type Payload = (*mut ArrowBatch, bool);
-    fn result_mut(&mut self) -> &mut CResult {
-        &mut self.result
-    }
-    fn context_mut(&mut self) -> &mut *const Context {
-        &mut self.context
-    }
-    fn error_message_mut(&mut self) -> &mut *mut c_char {
-        &mut self.error_message
-    }
-    fn set_payload(&mut self, payload: Option<Self::Payload>) {
-        match payload {
-            Some((batch_ptr, is_end)) => {
-                self.batch = batch_ptr;
-                self.end_of_stream = is_end;
-            }
-            None => {
-                self.batch = ptr::null_mut();
-                self.end_of_stream = true;
-            }
-        }
-    }
-}
 
 // Helper function to create ArrowBatch from RecordBatch
 fn serialize_record_batch(batch: RecordBatch) -> Result<ArrowBatch> {
@@ -462,42 +427,22 @@ export_runtime_op!(
     scan: *mut IcebergScan
 );
 
-// Synchronous function to get the current batch from the scan
+
+// Get current batch from scan (returns null if end of stream or no batch)
 #[no_mangle]
-pub extern "C" fn iceberg_scan_next_batch(
-    scan: *mut IcebergScan,
-    response: *mut IcebergBatchResponse,
-    _handle: *const c_void,
-) -> CResult {
-    if scan.is_null() || response.is_null() {
-        return CResult::Error;
+pub extern "C" fn iceberg_scan_get_current_batch(scan: *mut IcebergScan) -> *mut ArrowBatch {
+    if scan.is_null() {
+        return ptr::null_mut();
     }
-
-    let scan_ref = unsafe { &mut *scan };
-    let response_ref = unsafe { &mut *response };
     
-    // Initialize response
-    *response_ref = IcebergBatchResponse {
-        result: CResult::Ok,
-        batch: ptr::null_mut(),
-        end_of_stream: false,
-        error_message: ptr::null_mut(),
-        context: ptr::null(),
-    };
-
-    // Return the current batch from the scan
-    if let Some(batch_ptr) = scan_ref.current_batch.take() {
-        tracing::info!("Returning stored batch pointer: {:?}", batch_ptr);
-        response_ref.batch = batch_ptr;
-        response_ref.end_of_stream = false;
-    } else {
-        tracing::warn!("No current batch stored, end_of_stream: {}", scan_ref.end_of_stream);
-        // No current batch - either end of stream or need to wait for one
-        response_ref.batch = ptr::null_mut();
-        response_ref.end_of_stream = scan_ref.end_of_stream;
+    let scan_ref = unsafe { &*scan };
+    
+    // If end of stream, return null (no more batches)
+    if scan_ref.end_of_stream {
+        return ptr::null_mut();
     }
-
-    CResult::Ok
+    
+    scan_ref.current_batch.unwrap_or(ptr::null_mut())
 }
 
 // Synchronous operations
@@ -561,8 +506,14 @@ pub extern "C" fn iceberg_scan_free(scan: *mut IcebergScan) {
 }
 
 #[no_mangle]
-pub extern "C" fn iceberg_arrow_batch_free(batch: *mut ArrowBatch) {
-    if !batch.is_null() {
+pub extern "C" fn iceberg_arrow_batch_free(scan: *mut IcebergScan) {
+    if scan.is_null() {
+        return;
+    }
+    
+    let scan_ref = unsafe { &mut *scan };
+    
+    if let Some(batch) = scan_ref.current_batch.take() {
         unsafe {
             let batch_ref = Box::from_raw(batch);
             if !batch_ref.rust_ptr.is_null() {
