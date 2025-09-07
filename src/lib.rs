@@ -413,7 +413,7 @@ export_runtime_op!(
         let (batch_ptr, end_of_stream) = result;
         
         if batch_ptr.is_null() {
-            tracing::warn!("Auto-storing NULL batch pointer - end of stream");
+            tracing::debug!("Auto-storing NULL batch pointer - end of stream");
             scan_ref.current_batch = None;
         } else {
             tracing::info!("Auto-storing batch pointer {:?} in scan", batch_ptr);
