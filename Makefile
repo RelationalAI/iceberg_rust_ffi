@@ -20,9 +20,9 @@ all: build test
 # Generate C header
 generate-header:
 	@if [ "$(TARGET)" = "local" ]; then \
-		cargo build --release; \
+		cargo build --release --no-default-features; \
 	else \
-		cargo build --release --target $(TARGET); \
+		cargo build --release --no-default-features --target $(TARGET); \
 	fi
 
 # Build the Rust library and generate header
