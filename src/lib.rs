@@ -167,6 +167,7 @@ impl RawResponse for IcebergScanResponse {
 
 
 // Helper function to create ArrowBatch from RecordBatch
+// TODO: Switch to zero-copy once Arrow.jl supports C API.
 fn serialize_record_batch(batch: RecordBatch) -> Result<ArrowBatch> {
     let buffer = Vec::new();
     let mut stream_writer = StreamWriter::try_new(buffer, &batch.schema())?;
