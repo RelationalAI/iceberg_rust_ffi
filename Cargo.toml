@@ -12,7 +12,7 @@ cbindgen = "0.26"
 
 [dependencies]
 iceberg = "0.6.0"
-object_store_ffi = { path = "../object_store_ffi", default-features = false }
+object_store_ffi = { git = "https://github.com/RelationalAI/object_store_ffi", rev = "db0f6a3fe282e267a53c119c0aca4b5af341df3f", default-features = false }
 tokio = { version = "1.0", features = ["full"] }
 futures = "0.3"
 libc = "0.2"
