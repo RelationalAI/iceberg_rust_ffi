@@ -30,6 +30,7 @@ int panic_callback() {
 volatile int async_completed = 0;
 
 int result_callback(const void* task) {
+    (void)task; // Suppress unused parameter warning
     // Signal that async operation completed
     async_completed = 1;
     return 0;
