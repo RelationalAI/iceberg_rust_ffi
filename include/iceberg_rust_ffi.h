@@ -91,6 +91,10 @@ void iceberg_arrow_batch_free(IcebergScan* scan);
 CResult iceberg_destroy_cstring(char* string);
 const char* iceberg_current_metrics();
 
+// Context management functions for cancellation support
+CResult iceberg_cancel_context(const Context* ctx);
+CResult iceberg_destroy_context(const Context* ctx);
+
 // Backward compatibility
 const char* iceberg_error_message();
 

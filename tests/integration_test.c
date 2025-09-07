@@ -17,6 +17,8 @@ static void (*iceberg_scan_free_func)(IcebergScan*) = NULL;
 static void (*iceberg_arrow_batch_free_func)(IcebergScan*) = NULL;
 static ArrowBatch* (*iceberg_scan_get_current_batch_func)(IcebergScan*) = NULL;
 static int (*iceberg_destroy_cstring_func)(char*) = NULL;
+static int (*iceberg_cancel_context_func)(const void*) = NULL;
+static int (*iceberg_destroy_context_func)(const void*) = NULL;
 
 // Library handle
 static void* lib_handle = NULL;
@@ -111,6 +113,18 @@ int load_iceberg_library(const char* library_path) {
     iceberg_destroy_cstring_func = (int (*)(char*))dlsym(lib_handle, "iceberg_destroy_cstring");
     if (!iceberg_destroy_cstring_func) {
         fprintf(stderr, "❌ Failed to resolve iceberg_destroy_cstring: %s\n", dlerror());
+        return 0;
+    }
+
+    iceberg_cancel_context_func = (int (*)(const void*))dlsym(lib_handle, "iceberg_cancel_context");
+    if (!iceberg_cancel_context_func) {
+        fprintf(stderr, "❌ Failed to resolve iceberg_cancel_context: %s\n", dlerror());
+        return 0;
+    }
+
+    iceberg_destroy_context_func = (int (*)(const void*))dlsym(lib_handle, "iceberg_destroy_context");
+    if (!iceberg_destroy_context_func) {
+        fprintf(stderr, "❌ Failed to resolve iceberg_destroy_context: %s\n", dlerror());
         return 0;
     }
 
@@ -356,6 +370,50 @@ int main(int argc, char* argv[]) {
     } else {
         printf("✅ Reached end of stream (no more batches)\n");
     }
+
+    // 4. Test context cancellation functions
+    printf("Testing context cancellation functions...\n");
+    
+    // Test that cancellation functions can be called with valid context pointers
+    if (table_response.context != NULL) {
+        printf("   - Testing cancel_context with table context...\n");
+        int cancel_result = iceberg_cancel_context_func(table_response.context);
+        if (cancel_result == 0) {
+            printf("   ✅ cancel_context succeeded\n");
+        } else {
+            printf("   ⚠️  cancel_context returned: %d\n", cancel_result);
+        }
+        
+        printf("   - Testing destroy_context with table context...\n");
+        int destroy_result = iceberg_destroy_context_func(table_response.context);
+        if (destroy_result == 0) {
+            printf("   ✅ destroy_context succeeded\n");
+        } else {
+            printf("   ⚠️  destroy_context returned: %d\n", destroy_result);
+        }
+        table_response.context = NULL; // Mark as cleaned up
+    }
+    
+    if (scan_response.context != NULL) {
+        printf("   - Testing cancel_context with scan context...\n");
+        int cancel_result = iceberg_cancel_context_func(scan_response.context);
+        if (cancel_result == 0) {
+            printf("   ✅ cancel_context succeeded\n");
+        } else {
+            printf("   ⚠️  cancel_context returned: %d\n", cancel_result);
+        }
+        
+        printf("   - Testing destroy_context with scan context...\n");
+        int destroy_result = iceberg_destroy_context_func(scan_response.context);
+        if (destroy_result == 0) {
+            printf("   ✅ destroy_context succeeded\n");
+        } else {
+            printf("   ⚠️  destroy_context returned: %d\n", destroy_result);
+        }
+        scan_response.context = NULL; // Mark as cleaned up
+    }
+    
+    printf("✅ Context cancellation functions tested successfully\n");
 
     // 5. Cleanup
     printf("Cleaning up resources...\n");

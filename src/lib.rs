@@ -14,7 +14,8 @@ use iceberg::TableIdent;
 use object_store_ffi::{
     RT, RESULT_CB, ResultCallback,
     CResult, Context, RawResponse, ResponseGuard, NotifyGuard,
-    with_cancellation, export_runtime_op, destroy_cstring, current_metrics
+    with_cancellation, export_runtime_op, destroy_cstring, current_metrics,
+    cancel_context, destroy_context
 };
 
 // Stream wrapper for FFI - using async mutex to avoid blocking calls
@@ -540,4 +541,15 @@ pub extern "C" fn iceberg_destroy_cstring(string: *mut c_char) -> CResult {
 #[no_mangle]
 pub extern "C" fn iceberg_current_metrics() -> *const c_char {
     current_metrics()
+}
+
+// Re-export context management functions for cancellation support
+#[no_mangle]
+pub extern "C" fn iceberg_cancel_context(ctx_ptr: *const Context) -> CResult {
+    cancel_context(ctx_ptr)
+}
+
+#[no_mangle]
+pub extern "C" fn iceberg_destroy_context(ctx_ptr: *const Context) -> CResult {
+    destroy_context(ctx_ptr)
 }
