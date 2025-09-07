@@ -5,9 +5,10 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdint.h>
 
 // Global function pointers for new async API
-static int (*iceberg_init_runtime_func)(IcebergConfig config, int (*panic_callback)(), int (*result_callback)(const void*)) = NULL;
+static int (*iceberg_init_runtime_func)(IcebergConfig config, int (*panic_callback)(void), int (*result_callback)(const void*)) = NULL;
 static int (*iceberg_table_open_func)(const char*, const char*, IcebergTableResponse*, const void*) = NULL;
 static int (*iceberg_table_scan_func)(IcebergTable*, IcebergScanResponse*, const void*) = NULL;
 static int (*iceberg_scan_init_stream_func)(IcebergScan*, IcebergBoolResponse*, const void*) = NULL;
@@ -24,14 +25,14 @@ static int (*iceberg_destroy_context_func)(const void*) = NULL;
 static void* lib_handle = NULL;
 
 // Callback implementations
-int panic_callback() {
+static int panic_callback(void) {
     printf("🚨 Rust panic occurred!\n");
     return 1;
 }
 
 volatile int async_completed = 0;
 
-int result_callback(const void* task) {
+static int result_callback(const void* task) {
     (void)task; // Suppress unused parameter warning
     // Signal that async operation completed
     async_completed = 1;
@@ -39,7 +40,7 @@ int result_callback(const void* task) {
 }
 
 // Function to load the library and resolve symbols
-int load_iceberg_library(const char* library_path) {
+static int load_iceberg_library(const char* library_path) {
     printf("Loading Iceberg C API library from %s...\n", library_path);
 
     // Try to open the dynamic library
@@ -55,7 +56,7 @@ int load_iceberg_library(const char* library_path) {
     dlerror();
 
     // Resolve function symbols for new async API
-    iceberg_init_runtime_func = (int (*)(IcebergConfig, int (*)(), int (*)(const void*)))dlsym(lib_handle, "iceberg_init_runtime");
+    iceberg_init_runtime_func = (int (*)(IcebergConfig, int (*)(void), int (*)(const void*)))dlsym(lib_handle, "iceberg_init_runtime");
     if (!iceberg_init_runtime_func) {
         fprintf(stderr, "❌ Failed to resolve iceberg_init_runtime: %s\n", dlerror());
         return 0;
@@ -133,7 +134,7 @@ int load_iceberg_library(const char* library_path) {
 }
 
 // Function to unload the library
-void unload_iceberg_library() {
+static void unload_iceberg_library(void) {
     if (lib_handle) {
         dlclose(lib_handle);
         lib_handle = NULL;
@@ -184,7 +185,7 @@ int main(int argc, char* argv[]) {
 
     IcebergTableResponse table_response = {0};
     async_completed = 0;  // Reset flag
-    result = iceberg_table_open_func(table_path, metadata_path, &table_response, (const void*)&async_completed);
+    result = iceberg_table_open_func(table_path, metadata_path, &table_response, (const void*)(uintptr_t)&async_completed);
 
     if (result != CRESULT_OK) {
         printf("❌ Failed to initiate table open operation\n");
@@ -229,7 +230,7 @@ int main(int argc, char* argv[]) {
     // 3. Create a scan using async API
     IcebergScanResponse scan_response = {0};
     async_completed = 0;  // Reset flag
-    result = iceberg_table_scan_func(table_response.table, &scan_response, (const void*)&async_completed);
+    result = iceberg_table_scan_func(table_response.table, &scan_response, (const void*)(uintptr_t)&async_completed);
 
     if (result != CRESULT_OK) {
         printf("❌ Failed to initiate scan creation\n");
@@ -279,7 +280,7 @@ int main(int argc, char* argv[]) {
     printf("Step 1: Initializing stream asynchronously...\n");
     IcebergBoolResponse init_response = {0};
     async_completed = 0;  // Reset flag
-    result = iceberg_scan_init_stream_func(scan_response.scan, &init_response, (const void*)&async_completed);
+    result = iceberg_scan_init_stream_func(scan_response.scan, &init_response, (const void*)(uintptr_t)&async_completed);
 
     if (result == CRESULT_OK) {
         // Wait for async operation to complete
@@ -315,7 +316,7 @@ int main(int argc, char* argv[]) {
     printf("Step 2: Getting first batch from stream asynchronously...\n");
     IcebergBoolResponse batch_response = {0};
     async_completed = 0;  // Reset flag
-    result = iceberg_scan_next_batch_from_stream_func(scan_response.scan, &batch_response, (const void*)&async_completed);
+    result = iceberg_scan_next_batch_from_stream_func(scan_response.scan, &batch_response, (const void*)(uintptr_t)&async_completed);
 
     if (result == CRESULT_OK) {
         // Wait for batch retrieval to complete
@@ -354,7 +355,7 @@ int main(int argc, char* argv[]) {
         printf("✅ Successfully retrieved batch!\n");
         printf("📦 Batch details:\n");
         printf("   - Serialized size: %zu bytes\n", batch->length);
-        printf("   - Data pointer: %p\n", (void*)batch->data);
+        printf("   - Data pointer: %p\n", (const void*)batch->data);
         printf("   - First few bytes: ");
 
         // Print first 8 bytes as hex for verification

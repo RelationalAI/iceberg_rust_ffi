@@ -74,7 +74,7 @@ print_status "Using library from: $LIB_PATH"
 
 # Step 2: Build the integration test
 print_status "Building integration test..."
-if gcc -o integration_test tests/integration_test.c -Iinclude -L"$LIB_PATH" -liceberg_rust_ffi -lpthread -ldl -lm; then
+if gcc -Wall -Wextra -o integration_test tests/integration_test.c -Iinclude -L"$LIB_PATH" -liceberg_rust_ffi -lpthread -ldl -lm; then
     print_success "Integration test built successfully"
 else
     print_error "Failed to build integration test"

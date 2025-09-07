@@ -64,7 +64,7 @@ typedef struct {
 } IcebergBoolResponse;
 
 // Callback types
-typedef int (*PanicCallback)();
+typedef int (*PanicCallback)(void);
 typedef int (*ResultCallback)(const void* task);
 
 // Runtime initialization
@@ -87,14 +87,14 @@ void iceberg_arrow_batch_free(IcebergScan* scan);
 
 // Utility functions
 CResult iceberg_destroy_cstring(char* string);
-const char* iceberg_current_metrics();
+const char* iceberg_current_metrics(void);
 
 // Context management functions for cancellation support
 CResult iceberg_cancel_context(const Context* ctx);
 CResult iceberg_destroy_context(const Context* ctx);
 
 // Backward compatibility
-const char* iceberg_error_message();
+const char* iceberg_error_message(void);
 
 #ifdef __cplusplus
 }
