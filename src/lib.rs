@@ -1,4 +1,4 @@
-use std::ffi::{CStr, c_char, c_void};
+use std::ffi::{c_char, c_void, CStr};
 use std::ptr;
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -12,16 +12,16 @@ use iceberg::TableIdent;
 
 // Import from object_store_ffi
 use object_store_ffi::{
-    RT, RESULT_CB, ResultCallback,
-    CResult, Context, RawResponse, ResponseGuard, NotifyGuard,
-    with_cancellation, export_runtime_op, destroy_cstring, current_metrics,
-    cancel_context, destroy_context
+    cancel_context, current_metrics, destroy_context, destroy_cstring, export_runtime_op,
+    with_cancellation, CResult, Context, NotifyGuard, RawResponse, ResponseGuard, ResultCallback,
+    RESULT_CB, RT,
 };
 
 // Stream wrapper for FFI - using async mutex to avoid blocking calls
 #[repr(C)]
 pub struct IcebergStream {
-    pub stream: AsyncMutex<futures::stream::BoxStream<'static, Result<RecordBatch, iceberg::Error>>>,
+    pub stream:
+        AsyncMutex<futures::stream::BoxStream<'static, Result<RecordBatch, iceberg::Error>>>,
 }
 unsafe impl Send for IcebergStream {}
 
@@ -164,7 +164,6 @@ impl RawResponse for IcebergScanResponse {
         }
     }
 }
-
 
 // Helper function to create ArrowBatch from RecordBatch
 // TODO: Switch to zero-copy once Arrow.jl supports C API.
@@ -429,7 +428,6 @@ export_runtime_op!(
     scan: *mut IcebergScan
 );
 
-
 // Get current batch from scan (returns null if end of stream or no batch)
 #[no_mangle]
 pub extern "C" fn iceberg_scan_get_current_batch(scan: *mut IcebergScan) -> *mut ArrowBatch {
@@ -530,7 +528,8 @@ pub extern "C" fn iceberg_arrow_batch_free(scan: *mut IcebergScan) {
 pub extern "C" fn iceberg_error_message() -> *const c_char {
     // For backward compatibility, return a generic message
     // In the new async API, errors are returned through response structures
-    b"Error: Use new async API with response structures for detailed error information\0".as_ptr() as *const c_char
+    b"Error: Use new async API with response structures for detailed error information\0".as_ptr()
+        as *const c_char
 }
 
 // Re-export object_store_ffi utilities
