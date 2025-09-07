@@ -1572,7 +1572,7 @@ dependencies = [
 
 [[package]]
 name = "iceberg_rust_ffi"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -2272,6 +2272,7 @@ dependencies = [
 [[package]]
 name = "object_store_ffi"
 version = "0.12.3"
+source = "git+https://github.com/RelationalAI/object_store_ffi?rev=db0f6a3fe282e267a53c119c0aca4b5af341df3f#db0f6a3fe282e267a53c119c0aca4b5af341df3f"
 dependencies = [
  "anyhow",
  "async-channel",
