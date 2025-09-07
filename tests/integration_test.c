@@ -185,13 +185,13 @@ int main(int argc, char* argv[]) {
     IcebergTableResponse table_response = {0};
     async_completed = 0;  // Reset flag
     result = iceberg_table_open_func(table_path, metadata_path, &table_response, (const void*)&async_completed);
-    
+
     if (result != CRESULT_OK) {
         printf("❌ Failed to initiate table open operation\n");
         unload_iceberg_library();
         return 1;
     }
-    
+
     // Wait for async operation to complete
     printf("⏳ Waiting for table open to complete...\n");
     int timeout = 100;  // 10 second timeout
@@ -199,13 +199,13 @@ int main(int argc, char* argv[]) {
         usleep(100000);  // 100ms
         timeout--;
     }
-    
+
     if (!async_completed) {
         printf("❌ Async operation timed out\n");
         unload_iceberg_library();
         return 1;
     }
-    
+
     // Check if the operation was successful
     if (table_response.result != CRESULT_OK) {
         printf("❌ Failed to open table (result=%d)", table_response.result);
@@ -217,27 +217,27 @@ int main(int argc, char* argv[]) {
         unload_iceberg_library();
         return 1;
     }
-    
+
     if (!table_response.table) {
         printf("❌ No table returned from open operation\n");
         unload_iceberg_library();
         return 1;
     }
-    
+
     printf("✅ Table opened successfully\n");
 
     // 3. Create a scan using async API
     IcebergScanResponse scan_response = {0};
     async_completed = 0;  // Reset flag
     result = iceberg_table_scan_func(table_response.table, &scan_response, (const void*)&async_completed);
-    
+
     if (result != CRESULT_OK) {
         printf("❌ Failed to initiate scan creation\n");
         iceberg_table_free_func(table_response.table);
         unload_iceberg_library();
         return 1;
     }
-    
+
     // Wait for async operation to complete
     printf("⏳ Waiting for scan creation to complete...\n");
     timeout = 100;  // 10 second timeout
@@ -245,14 +245,14 @@ int main(int argc, char* argv[]) {
         usleep(100000);  // 100ms
         timeout--;
     }
-    
+
     if (!async_completed) {
         printf("❌ Scan creation async operation timed out\n");
         iceberg_table_free_func(table_response.table);
         unload_iceberg_library();
         return 1;
     }
-    
+
     // Check if the operation was successful
     if (scan_response.result != CRESULT_OK) {
         printf("❌ Failed to create scan");
@@ -265,22 +265,22 @@ int main(int argc, char* argv[]) {
         unload_iceberg_library();
         return 1;
     }
-    
+
     if (!scan_response.scan) {
         printf("❌ No scan returned from scan creation\n");
         iceberg_table_free_func(table_response.table);
         unload_iceberg_library();
         return 1;
     }
-    
+
     printf("✅ Scan created successfully\n");
 
-    // 4. Try to get a batch using new two-step async API  
+    // 4. Try to get a batch using new two-step async API
     printf("Step 1: Initializing stream asynchronously...\n");
     IcebergBoolResponse init_response = {0};
     async_completed = 0;  // Reset flag
     result = iceberg_scan_init_stream_func(scan_response.scan, &init_response, (const void*)&async_completed);
-    
+
     if (result == CRESULT_OK) {
         // Wait for async operation to complete
         timeout = 100;  // 10 second timeout
@@ -288,7 +288,7 @@ int main(int argc, char* argv[]) {
             usleep(100000);  // 100ms
             timeout--;
         }
-        
+
         if (!async_completed) {
             printf("❌ Batch wait async operation timed out\n");
             iceberg_scan_free_func(scan_response.scan);
@@ -297,7 +297,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
     }
-    
+
     if (result != CRESULT_OK) {
         printf("❌ Failed to initialize stream\n");
         if (init_response.error_message) {
@@ -309,14 +309,14 @@ int main(int argc, char* argv[]) {
         unload_iceberg_library();
         return 1;
     }
-    
+
     printf("✅ Stream initialized successfully\n");
-    
+
     printf("Step 2: Getting first batch from stream asynchronously...\n");
     IcebergBoolResponse batch_response = {0};
     async_completed = 0;  // Reset flag
     result = iceberg_scan_next_batch_from_stream_func(scan_response.scan, &batch_response, (const void*)&async_completed);
-    
+
     if (result == CRESULT_OK) {
         // Wait for batch retrieval to complete
         timeout = 100;  // 10 second timeout
@@ -324,7 +324,7 @@ int main(int argc, char* argv[]) {
             usleep(100000);  // 100ms
             timeout--;
         }
-        
+
         if (!async_completed) {
             printf("❌ Batch retrieval async operation timed out\n");
             iceberg_scan_free_func(scan_response.scan);
@@ -333,7 +333,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
     }
-    
+
     if (result != CRESULT_OK) {
         printf("❌ Failed to get first batch from stream\n");
         if (batch_response.error_message) {
@@ -345,18 +345,18 @@ int main(int argc, char* argv[]) {
         unload_iceberg_library();
         return 1;
     }
-    
+
     printf("Step 3: Retrieving stored batch from scan...\n");
-    
+
     ArrowBatch* batch = iceberg_scan_get_current_batch_func(scan_response.scan);
-    
+
     if (batch) {
         printf("✅ Successfully retrieved batch!\n");
         printf("📦 Batch details:\n");
         printf("   - Serialized size: %zu bytes\n", batch->length);
         printf("   - Data pointer: %p\n", (void*)batch->data);
         printf("   - First few bytes: ");
-        
+
         // Print first 8 bytes as hex for verification
         size_t print_len = (batch->length < 8) ? batch->length : 8;
         for (size_t i = 0; i < print_len; i++) {
@@ -364,7 +364,7 @@ int main(int argc, char* argv[]) {
         }
         printf("\n");
         printf("   → Arrow IPC bytes ready for Julia Arrow.Stream()\n");
-        
+
         // Free the batch from the scan (clears the pointer and deallocates)
         iceberg_arrow_batch_free_func(scan_response.scan);
     } else {
@@ -373,7 +373,7 @@ int main(int argc, char* argv[]) {
 
     // 4. Test context cancellation functions
     printf("Testing context cancellation functions...\n");
-    
+
     // Test that cancellation functions can be called with valid context pointers
     if (table_response.context != NULL) {
         printf("   - Testing cancel_context with table context...\n");
@@ -383,7 +383,7 @@ int main(int argc, char* argv[]) {
         } else {
             printf("   ⚠️  cancel_context returned: %d\n", cancel_result);
         }
-        
+
         printf("   - Testing destroy_context with table context...\n");
         int destroy_result = iceberg_destroy_context_func(table_response.context);
         if (destroy_result == 0) {
@@ -393,7 +393,7 @@ int main(int argc, char* argv[]) {
         }
         table_response.context = NULL; // Mark as cleaned up
     }
-    
+
     if (scan_response.context != NULL) {
         printf("   - Testing cancel_context with scan context...\n");
         int cancel_result = iceberg_cancel_context_func(scan_response.context);
@@ -402,7 +402,7 @@ int main(int argc, char* argv[]) {
         } else {
             printf("   ⚠️  cancel_context returned: %d\n", cancel_result);
         }
-        
+
         printf("   - Testing destroy_context with scan context...\n");
         int destroy_result = iceberg_destroy_context_func(scan_response.context);
         if (destroy_result == 0) {
@@ -412,7 +412,7 @@ int main(int argc, char* argv[]) {
         }
         scan_response.context = NULL; // Mark as cleaned up
     }
-    
+
     printf("✅ Context cancellation functions tested successfully\n");
 
     // 5. Cleanup
