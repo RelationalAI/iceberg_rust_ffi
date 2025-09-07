@@ -17,6 +17,17 @@ use object_store_ffi::{
     RESULT_CB, RT,
 };
 
+// We use `jl_adopt_thread` to ensure Rust can call into Julia when notifying
+// the Base.Event that is waiting for the Rust result.
+// Note that this will be linked in from the Julia process, we do not try
+// to link it while building this Rust lib.
+#[cfg(feature = "julia")]
+extern "C" {
+    fn jl_adopt_thread() -> i32;
+    fn jl_gc_safe_enter() -> i32;
+    fn jl_gc_disable_finalizers_internal() -> c_void;
+}
+
 // Stream wrapper for FFI - using async mutex to avoid blocking calls
 #[repr(C)]
 pub struct IcebergStream {
@@ -217,9 +228,14 @@ pub extern "C" fn iceberg_init_runtime(
     let mut rt_builder = tokio::runtime::Builder::new_multi_thread();
     rt_builder.enable_all();
 
-    // Configure Julia thread adoption if needed in the future
+    // Configure Julia thread adoption for Julia integration
     rt_builder.on_thread_start(|| {
-        // For future Julia integration
+        #[cfg(feature = "julia")]
+        {
+            unsafe { jl_adopt_thread() };
+            unsafe { jl_gc_safe_enter() };
+            unsafe { jl_gc_disable_finalizers_internal() };
+        }
     });
 
     if config.n_threads > 0 {

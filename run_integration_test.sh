@@ -46,9 +46,9 @@ if [ -f ".env" ]; then
     set +a
 fi
 
-# Step 1: Build the Rust library
+# Step 1: Build the Rust library (without julia feature for standalone C integration)
 print_status "Building Rust library..."
-if cargo build; then
+if cargo build --no-default-features; then
     print_success "Rust library built successfully"
 else
     print_error "Failed to build Rust library"
