@@ -21,9 +21,7 @@ typedef struct {
 // Result types
 typedef enum {
     CRESULT_OK = 0,
-    CRESULT_ERROR = -1,
-    CRESULT_BACKOFF = -2,
-    CRESULT_UNINITIALIZED = -3
+    CRESULT_ERROR = 1
 } CResult;
 
 // Arrow batch as serialized bytes
