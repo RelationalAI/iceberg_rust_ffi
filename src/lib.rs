@@ -100,8 +100,6 @@ pub struct IcebergScan {
     pub table: Option<iceberg::table::Table>,
     pub columns: Option<Vec<String>>,
     pub stream: Option<*mut IcebergStream>,
-    pub current_batch: Option<*mut ArrowBatch>,
-    pub end_of_stream: bool,
 }
 
 // SAFETY: IcebergScan can be safely sent between threads because:
@@ -172,6 +170,35 @@ impl RawResponse for IcebergScanResponse {
         match payload {
             Some(scan_ptr) => self.scan = scan_ptr,
             None => self.scan = ptr::null_mut(),
+        }
+    }
+}
+
+#[repr(C)]
+pub struct IcebergBatchResponse {
+    result: CResult,
+    batch: *mut ArrowBatch,
+    error_message: *mut c_char,
+    context: *const Context,
+}
+
+unsafe impl Send for IcebergBatchResponse {}
+
+impl RawResponse for IcebergBatchResponse {
+    type Payload = *mut ArrowBatch;
+    fn result_mut(&mut self) -> &mut CResult {
+        &mut self.result
+    }
+    fn context_mut(&mut self) -> &mut *const Context {
+        &mut self.context
+    }
+    fn error_message_mut(&mut self) -> &mut *mut c_char {
+        &mut self.error_message
+    }
+    fn set_payload(&mut self, payload: Option<Self::Payload>) {
+        match payload {
+            Some(batch_ptr) => self.batch = batch_ptr,
+            None => self.batch = ptr::null_mut(),
         }
     }
 }
@@ -323,8 +350,6 @@ export_runtime_op!(
             table: Some(iceberg_table),
             columns: None,
             stream: None,
-            current_batch: None,
-            end_of_stream: false,
         }));
         Ok::<*mut IcebergScan, anyhow::Error>(scan_ptr)
     },
@@ -387,8 +412,8 @@ export_runtime_op!(
 
 // Async function to get next batch from existing stream
 export_runtime_op!(
-    iceberg_scan_next_batch_from_stream,
-    IcebergBoolResponse,
+    iceberg_scan_next_batch,
+    IcebergBatchResponse,
     || {
         if scan.is_null() {
             return Err(anyhow::anyhow!("Null scan pointer provided"));
@@ -399,67 +424,35 @@ export_runtime_op!(
 
         if let Some(stream_ptr) = scan_ref.stream {
             tracing::debug!("Found stream pointer: {:?}", stream_ptr);
-            let scan_ref = unsafe { &mut *(scan as *mut IcebergScan) };
             let stream_ref = unsafe { &*stream_ptr };
-            Ok((stream_ref, scan_ref))
+            Ok(stream_ref)
         } else {
             tracing::error!("No stream available in scan");
             Err(anyhow::anyhow!("No stream available"))
         }
     },
-    stream_data,
+    stream_ref,
     async {
-        let (stream_ref, scan_ref) = stream_data;
 
         let mut stream_guard = stream_ref.stream.lock().await;
 
-        let result = match stream_guard.next().await {
+        match stream_guard.next().await {
             Some(Ok(record_batch)) => {
                 let arrow_batch = serialize_record_batch(record_batch)?;
                 let batch_ptr = Box::into_raw(Box::new(arrow_batch));
-                (batch_ptr, false)
+                Ok(batch_ptr)
             }
             Some(Err(e)) => return Err(anyhow::anyhow!("Error reading batch: {}", e)),
             None => {
-                // End of stream
-                (ptr::null_mut(), true)
+                // End of stream - return null pointer
+                tracing::debug!("End of stream reached, returning null pointer");
+                Ok(ptr::null_mut())
             }
-        };
-
-        // Auto-store the result in scan
-        let (batch_ptr, end_of_stream) = result;
-
-        if batch_ptr.is_null() {
-            tracing::debug!("Auto-storing NULL batch pointer - end of stream");
-            scan_ref.current_batch = None;
-        } else {
-            tracing::info!("Auto-storing batch pointer {:?} in scan", batch_ptr);
-            scan_ref.current_batch = Some(batch_ptr);
         }
-        scan_ref.end_of_stream = end_of_stream;
-
-        // Return only the end_of_stream status
-        Ok(end_of_stream)
     },
     scan: *mut IcebergScan
 );
 
-// Get current batch from scan (returns null if end of stream or no batch)
-#[no_mangle]
-pub extern "C" fn iceberg_scan_get_current_batch(scan: *mut IcebergScan) -> *mut ArrowBatch {
-    if scan.is_null() {
-        return ptr::null_mut();
-    }
-
-    let scan_ref = unsafe { &*scan };
-
-    // If end of stream, return null (no more batches)
-    if scan_ref.end_of_stream {
-        return ptr::null_mut();
-    }
-
-    scan_ref.current_batch.unwrap_or(ptr::null_mut())
-}
 
 // Synchronous operations
 #[no_mangle]
@@ -509,10 +502,6 @@ pub extern "C" fn iceberg_scan_free(scan: *mut IcebergScan) {
     if !scan.is_null() {
         unsafe {
             let scan_ref = Box::from_raw(scan);
-            // Clean up any current batch
-            if let Some(batch_ptr) = scan_ref.current_batch {
-                let _ = Box::from_raw(batch_ptr);
-            }
             // Clean up any stream
             if let Some(stream_ptr) = scan_ref.stream {
                 let _ = Box::from_raw(stream_ptr);
@@ -522,19 +511,15 @@ pub extern "C" fn iceberg_scan_free(scan: *mut IcebergScan) {
 }
 
 #[no_mangle]
-pub extern "C" fn iceberg_arrow_batch_free(scan: *mut IcebergScan) {
-    if scan.is_null() {
+pub extern "C" fn iceberg_arrow_batch_free(batch: *mut ArrowBatch) {
+    if batch.is_null() {
         return;
     }
 
-    let scan_ref = unsafe { &mut *scan };
-
-    if let Some(batch) = scan_ref.current_batch.take() {
-        unsafe {
-            let batch_ref = Box::from_raw(batch);
-            if !batch_ref.rust_ptr.is_null() {
-                let _ = Box::from_raw(batch_ref.rust_ptr as *mut Vec<u8>);
-            }
+    unsafe {
+        let batch_ref = Box::from_raw(batch);
+        if !batch_ref.rust_ptr.is_null() {
+            let _ = Box::from_raw(batch_ref.rust_ptr as *mut Vec<u8>);
         }
     }
 }

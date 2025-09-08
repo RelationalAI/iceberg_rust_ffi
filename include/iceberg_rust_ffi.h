@@ -36,8 +36,6 @@ typedef struct {
     void* table;              // Option<iceberg::table::Table> - opaque
     void* columns;            // Option<Vec<String>> - opaque
     void* stream;             // Option<*mut IcebergStream> - opaque
-    ArrowBatch* current_batch; // Option<*mut ArrowBatch>
-    bool end_of_stream;       // bool
 } IcebergScan;
 
 // Response structures for async operations
@@ -63,6 +61,13 @@ typedef struct {
     const Context* context;
 } IcebergBoolResponse;
 
+typedef struct {
+    CResult result;
+    ArrowBatch* batch;
+    char* error_message;
+    const Context* context;
+} IcebergBatchResponse;
+
 // Callback types
 typedef int (*PanicCallback)(void);
 typedef int (*ResultCallback)(const void* task);
@@ -81,9 +86,8 @@ void iceberg_scan_free(IcebergScan* scan);
 
 // New simplified async API
 CResult iceberg_scan_init_stream(IcebergScan* scan, IcebergBoolResponse* response, const void* handle);
-CResult iceberg_scan_next_batch_from_stream(IcebergScan* scan, IcebergBoolResponse* response, const void* handle);
-ArrowBatch* iceberg_scan_get_current_batch(IcebergScan* scan);
-void iceberg_arrow_batch_free(IcebergScan* scan);
+CResult iceberg_scan_next_batch(IcebergScan* scan, IcebergBatchResponse* response, const void* handle);
+void iceberg_arrow_batch_free(ArrowBatch* batch);
 
 // Utility functions
 CResult iceberg_destroy_cstring(char* string);

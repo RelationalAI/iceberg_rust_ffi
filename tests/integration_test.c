@@ -12,11 +12,10 @@ static int (*iceberg_init_runtime_func)(IcebergConfig config, int (*panic_callba
 static int (*iceberg_table_open_func)(const char*, const char*, IcebergTableResponse*, const void*) = NULL;
 static int (*iceberg_table_scan_func)(IcebergTable*, IcebergScanResponse*, const void*) = NULL;
 static int (*iceberg_scan_init_stream_func)(IcebergScan*, IcebergBoolResponse*, const void*) = NULL;
-static int (*iceberg_scan_next_batch_from_stream_func)(IcebergScan*, IcebergBoolResponse*, const void*) = NULL;
+static int (*iceberg_scan_next_batch_func)(IcebergScan*, IcebergBatchResponse*, const void*) = NULL;
 static void (*iceberg_table_free_func)(IcebergTable*) = NULL;
 static void (*iceberg_scan_free_func)(IcebergScan*) = NULL;
-static void (*iceberg_arrow_batch_free_func)(IcebergScan*) = NULL;
-static ArrowBatch* (*iceberg_scan_get_current_batch_func)(IcebergScan*) = NULL;
+static void (*iceberg_arrow_batch_free_func)(ArrowBatch*) = NULL;
 static int (*iceberg_destroy_cstring_func)(char*) = NULL;
 static int (*iceberg_cancel_context_func)(const void*) = NULL;
 static int (*iceberg_destroy_context_func)(const void*) = NULL;
@@ -79,9 +78,9 @@ static int load_iceberg_library(const char* library_path) {
         fprintf(stderr, "❌ Failed to resolve iceberg_scan_init_stream: %s\n", dlerror());
         return 0;
     }
-    iceberg_scan_next_batch_from_stream_func = (int (*)(IcebergScan*, IcebergBoolResponse*, const void*))dlsym(lib_handle, "iceberg_scan_next_batch_from_stream");
-    if (!iceberg_scan_next_batch_from_stream_func) {
-        fprintf(stderr, "❌ Failed to resolve iceberg_scan_next_batch_from_stream: %s\n", dlerror());
+    iceberg_scan_next_batch_func = (int (*)(IcebergScan*, IcebergBatchResponse*, const void*))dlsym(lib_handle, "iceberg_scan_next_batch");
+    if (!iceberg_scan_next_batch_func) {
+        fprintf(stderr, "❌ Failed to resolve iceberg_scan_next_batch: %s\n", dlerror());
         return 0;
     }
 
@@ -99,15 +98,9 @@ static int load_iceberg_library(const char* library_path) {
         return 0;
     }
 
-    iceberg_arrow_batch_free_func = (void (*)(IcebergScan*))dlsym(lib_handle, "iceberg_arrow_batch_free");
+    iceberg_arrow_batch_free_func = (void (*)(ArrowBatch*))dlsym(lib_handle, "iceberg_arrow_batch_free");
     if (!iceberg_arrow_batch_free_func) {
         fprintf(stderr, "❌ Failed to resolve iceberg_arrow_batch_free: %s\n", dlerror());
-        return 0;
-    }
-
-    iceberg_scan_get_current_batch_func = (ArrowBatch* (*)(IcebergScan*))dlsym(lib_handle, "iceberg_scan_get_current_batch");
-    if (!iceberg_scan_get_current_batch_func) {
-        fprintf(stderr, "❌ Failed to resolve iceberg_scan_get_current_batch: %s\n", dlerror());
         return 0;
     }
 
@@ -314,9 +307,9 @@ int main(int argc, char* argv[]) {
     printf("✅ Stream initialized successfully\n");
 
     printf("Step 2: Getting first batch from stream asynchronously...\n");
-    IcebergBoolResponse batch_response = {0};
+    IcebergBatchResponse batch_response = {0};
     async_completed = 0;  // Reset flag
-    result = iceberg_scan_next_batch_from_stream_func(scan_response.scan, &batch_response, (const void*)(uintptr_t)&async_completed);
+    result = iceberg_scan_next_batch_func(scan_response.scan, &batch_response, (const void*)(uintptr_t)&async_completed);
 
     if (result == CRESULT_OK) {
         // Wait for batch retrieval to complete
@@ -347,9 +340,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    printf("Step 3: Retrieving stored batch from scan...\n");
+    printf("Step 3: Checking batch result...\n");
 
-    ArrowBatch* batch = iceberg_scan_get_current_batch_func(scan_response.scan);
+    ArrowBatch* batch = batch_response.batch;
 
     if (batch) {
         printf("✅ Successfully retrieved batch!\n");
@@ -366,8 +359,8 @@ int main(int argc, char* argv[]) {
         printf("\n");
         printf("   → Arrow IPC bytes ready for Julia Arrow.Stream()\n");
 
-        // Free the batch from the scan (clears the pointer and deallocates)
-        iceberg_arrow_batch_free_func(scan_response.scan);
+        // Free the batch directly
+        iceberg_arrow_batch_free_func(batch);
     } else {
         printf("✅ Reached end of stream (no more batches)\n");
     }
