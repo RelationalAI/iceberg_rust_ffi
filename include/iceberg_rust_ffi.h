@@ -56,10 +56,9 @@ typedef struct {
 
 typedef struct {
     CResult result;
-    bool success;
     char* error_message;
     const Context* context;
-} IcebergBoolResponse;
+} IcebergResponse;
 
 typedef struct {
     CResult result;
@@ -85,7 +84,7 @@ CResult iceberg_scan_select_columns(IcebergScan* scan, const char** column_names
 void iceberg_scan_free(IcebergScan* scan);
 
 // New simplified async API
-CResult iceberg_scan_init_stream(IcebergScan* scan, IcebergBoolResponse* response, const void* handle);
+CResult iceberg_scan_init_stream(IcebergScan* scan, IcebergResponse* response, const void* handle);
 CResult iceberg_scan_next_batch(IcebergScan* scan, IcebergBatchResponse* response, const void* handle);
 void iceberg_arrow_batch_free(ArrowBatch* batch);
 

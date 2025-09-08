@@ -36,19 +36,18 @@ pub struct IcebergStream {
 }
 unsafe impl Send for IcebergStream {}
 
-// Unified response type for operations that return a boolean status
+// Simple response type for operations that only need success/failure status
 #[repr(C)]
-pub struct IcebergBoolResponse {
+pub struct IcebergResponse {
     result: CResult,
-    success: bool,
     error_message: *mut c_char,
     context: *const Context,
 }
 
-unsafe impl Send for IcebergBoolResponse {}
+unsafe impl Send for IcebergResponse {}
 
-impl RawResponse for IcebergBoolResponse {
-    type Payload = bool;
+impl RawResponse for IcebergResponse {
+    type Payload = ();
 
     fn result_mut(&mut self) -> &mut CResult {
         &mut self.result
@@ -62,8 +61,8 @@ impl RawResponse for IcebergBoolResponse {
         &mut self.error_message
     }
 
-    fn set_payload(&mut self, payload: Option<Self::Payload>) {
-        self.success = payload.unwrap_or(false);
+    fn set_payload(&mut self, _payload: Option<Self::Payload>) {
+        // No payload for simple response
     }
 }
 
@@ -359,7 +358,7 @@ export_runtime_op!(
 // Async function to initialize stream without getting first batch
 export_runtime_op!(
     iceberg_scan_init_stream,
-    IcebergBoolResponse,
+    IcebergResponse,
     || {
         if scan.is_null() {
             return Err(anyhow::anyhow!("Null scan pointer provided"));
@@ -404,8 +403,8 @@ export_runtime_op!(
         // Store stream in scan
         scan_ref.stream = Some(stream_ptr);
 
-        // Return success flag
-        Ok::<bool, anyhow::Error>(true)
+        // Return success (no payload needed)
+        Ok::<(), anyhow::Error>(())
     },
     scan: *mut IcebergScan
 );
