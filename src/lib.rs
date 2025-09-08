@@ -452,7 +452,6 @@ export_runtime_op!(
     scan: *mut IcebergScan
 );
 
-
 // Synchronous operations
 #[no_mangle]
 pub extern "C" fn iceberg_table_free(table: *mut IcebergTable) {
