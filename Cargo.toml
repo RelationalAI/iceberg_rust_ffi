@@ -7,9 +7,6 @@ edition = "2021"
 name = "iceberg_rust_ffi"
 crate-type = ["cdylib"]
 
-[build-dependencies]
-cbindgen = "0.26"
-
 [features]
 default = ["julia"]
 julia = []
