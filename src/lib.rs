@@ -28,14 +28,6 @@ extern "C" {
     fn jl_gc_disable_finalizers_internal() -> c_void;
 }
 
-// Stream wrapper for FFI - using async mutex to avoid blocking calls
-#[repr(C)]
-pub struct IcebergStream {
-    pub stream:
-        AsyncMutex<futures::stream::BoxStream<'static, Result<RecordBatch, iceberg::Error>>>,
-}
-unsafe impl Send for IcebergStream {}
-
 // Simple response type for operations that only need success/failure status
 #[repr(C)]
 pub struct IcebergResponse {
@@ -89,6 +81,15 @@ impl Default for IcebergConfig {
 pub struct IcebergTable {
     pub table: iceberg::table::Table,
 }
+
+// Stream wrapper for FFI - using async mutex to avoid blocking calls
+#[repr(C)]
+pub struct IcebergStream {
+    pub stream:
+        AsyncMutex<futures::stream::BoxStream<'static, Result<RecordBatch, iceberg::Error>>>,
+}
+
+unsafe impl Send for IcebergStream {}
 
 #[repr(C)]
 pub struct IcebergScan {
@@ -428,7 +429,6 @@ export_runtime_op!(
     },
     stream_ref,
     async {
-
         let mut stream_guard = stream_ref.stream.lock().await;
 
         match stream_guard.next().await {
@@ -498,7 +498,8 @@ pub extern "C" fn iceberg_scan_free(scan: *mut IcebergScan) {
             let scan_ref = Box::from_raw(scan);
             // Clean up any stream
             if let Some(stream_ptr) = scan_ref.stream {
-                let _ = Box::from_raw(stream_ptr);
+                let stream = Box::from_raw(stream_ptr);
+                drop(stream);
             }
         }
     }
