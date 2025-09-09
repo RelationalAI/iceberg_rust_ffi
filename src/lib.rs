@@ -66,10 +66,6 @@ impl RawResponse for IcebergResponse {
     }
 }
 
-// cbindgen annotations
-#[allow(non_camel_case_types)]
-#[allow(non_snake_case)]
-
 // Callback types for Julia integration
 type PanicCallback = unsafe extern "C" fn() -> i32;
 
