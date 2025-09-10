@@ -172,7 +172,7 @@ int main(int argc, char* argv[]) {
 
     // 2. Open table using async API
     const char* table_path = "s3://warehouse/tpch.sf01/nation";
-    const char* metadata_path = "metadata/00001-4f9722c5-8764-4988-8063-874c3d453268.metadata.json";
+    const char* metadata_path = "metadata/00001-44f668fe-3688-49d5-851f-36e75d143321.metadata.json";
     printf("Opening table at: %s\n", table_path);
     printf("Using metadata file: %s\n", metadata_path);
 
