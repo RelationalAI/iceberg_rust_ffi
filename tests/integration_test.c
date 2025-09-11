@@ -13,7 +13,7 @@ static int (*iceberg_table_open_func)(const char*, const char*, IcebergTableResp
 static IcebergScan* (*iceberg_new_scan_func)(IcebergTable*) = NULL;
 static int (*iceberg_scan_func)(IcebergScan**) = NULL;
 static void (*iceberg_scan_free_func)(IcebergScan**) = NULL;
-static int (*iceberg_arrow_stream_func)(IcebergScan**, IcebergArrowStreamResponse*, const void*) = NULL;
+static int (*iceberg_arrow_stream_func)(IcebergScan*, IcebergArrowStreamResponse*, const void*) = NULL;
 static int (*iceberg_next_batch_func)(IcebergArrowStream*, IcebergBatchResponse*, const void*) = NULL;
 static void (*iceberg_table_free_func)(IcebergTable*) = NULL;
 static void (*iceberg_arrow_stream_free_func)(IcebergArrowStream*) = NULL;
@@ -81,7 +81,7 @@ static int load_iceberg_library(const char* library_path) {
         return 0;
     }
 
-    iceberg_arrow_stream_func = (int (*)(IcebergScan**, IcebergArrowStreamResponse*, const void*))dlsym(lib_handle, "iceberg_arrow_stream");
+    iceberg_arrow_stream_func = (int (*)(IcebergScan*, IcebergArrowStreamResponse*, const void*))dlsym(lib_handle, "iceberg_arrow_stream");
     if (!iceberg_arrow_stream_func) {
         fprintf(stderr, "❌ Failed to resolve iceberg_arrow_stream: %s\n", dlerror());
         return 0;
@@ -261,7 +261,7 @@ int main(int argc, char* argv[]) {
     printf("Step 1: Initializing stream asynchronously...\n");
     IcebergArrowStreamResponse stream_response = {0};
     async_completed = 0;
-    result = iceberg_arrow_stream_func(&scan, &stream_response, (const void*)(uintptr_t)&async_completed);
+    result = iceberg_arrow_stream_func(scan, &stream_response, (const void*)(uintptr_t)&async_completed);
     if (result != CRESULT_OK) {
         printf("❌ Failed to create stream\n");
         iceberg_scan_free_func(&scan);

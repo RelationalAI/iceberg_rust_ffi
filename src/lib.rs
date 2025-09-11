@@ -8,7 +8,7 @@ use arrow_array::RecordBatch;
 use arrow_ipc::writer::StreamWriter;
 use iceberg::io::FileIOBuilder;
 use iceberg::scan::{TableScan, TableScanBuilder};
-use iceberg::table::{self, StaticTable, Table};
+use iceberg::table::{StaticTable, Table};
 use iceberg::TableIdent;
 
 // Import from object_store_ffi
@@ -353,7 +353,7 @@ pub extern "C" fn iceberg_new_scan(table: *mut IcebergTable) -> *mut IcebergScan
 
 #[no_mangle]
 pub extern "C" fn iceberg_select_columns(
-    scan: *mut IcebergScan,
+    scan: *mut *mut IcebergScan,
     column_names: *const *const c_char,
     num_columns: usize,
 ) -> CResult {
@@ -378,16 +378,16 @@ pub extern "C" fn iceberg_select_columns(
         columns.push(col_str.to_string());
     }
 
-    let scan_ref = unsafe { Box::from_raw(scan) };
+    let scan_ref = unsafe { Box::from_raw(*scan) };
 
     if scan_ref.builder.is_none() {
         return CResult::Error;
     }
     unsafe {
-        *scan = IcebergScan {
+        *scan = Box::into_raw(Box::new(IcebergScan {
             builder: scan_ref.builder.map(|b| b.select(columns)),
             scan: scan_ref.scan,
-        };
+        }));
     }
 
     return CResult::Ok;
@@ -398,7 +398,7 @@ pub extern "C" fn iceberg_scan(scan: *mut *mut IcebergScan) -> CResult {
     if scan.is_null() {
         return CResult::Error;
     }
-    let mut scan_ref = unsafe { Box::from_raw(*scan) };
+    let scan_ref = unsafe { Box::from_raw(*scan) };
     if scan_ref.builder.is_none() {
         return CResult::Error;
     }
@@ -426,7 +426,7 @@ export_runtime_op!(
         if scan.is_null() {
             return Err(anyhow::anyhow!("Null scan pointer provided"));
         }
-        let scan_ref = unsafe { &(**scan).scan };
+        let scan_ref = unsafe { &(*scan).scan };
         if scan_ref.is_none() {
             return Err(anyhow::anyhow!("Scan not initialized"));
         }
@@ -435,15 +435,12 @@ export_runtime_op!(
     },
     scan_ref,
     async {
-        println!("HERE 2");
-
         let stream = scan_ref.to_arrow().await?;
-        println!("HERE 3");
         Ok::<IcebergArrowStream, anyhow::Error>(IcebergArrowStream {
             stream: AsyncMutex::new(stream),
         })
     },
-    scan: *mut *mut IcebergScan
+    scan: *mut IcebergScan
 );
 
 // Async function to get next batch from existing stream
