@@ -10,10 +10,10 @@
 // Global function pointers for new async API
 static int (*iceberg_init_runtime_func)(IcebergStaticConfig config, int (*panic_callback)(void), int (*result_callback)(const void*)) = NULL;
 static int (*iceberg_table_open_func)(const char*, const char*, IcebergTableResponse*, const void*) = NULL;
-static IcebergScan* (*iceberg_scan_func)(IcebergScan*) = NULL;
 static IcebergScan* (*iceberg_new_scan_func)(IcebergTable*) = NULL;
-static void (*iceberg_scan_free_func)(IcebergScan*) = NULL;
-static int (*iceberg_arrow_stream_func)(IcebergScan*, IcebergArrowStreamResponse*, const void*) = NULL;
+static int (*iceberg_scan_func)(IcebergScan**) = NULL;
+static void (*iceberg_scan_free_func)(IcebergScan**) = NULL;
+static int (*iceberg_arrow_stream_func)(IcebergScan**, IcebergArrowStreamResponse*, const void*) = NULL;
 static int (*iceberg_next_batch_func)(IcebergArrowStream*, IcebergBatchResponse*, const void*) = NULL;
 static void (*iceberg_table_free_func)(IcebergTable*) = NULL;
 static void (*iceberg_arrow_stream_free_func)(IcebergArrowStream*) = NULL;
@@ -69,18 +69,19 @@ static int load_iceberg_library(const char* library_path) {
         return 0;
     }
 
-    iceberg_scan_func = (IcebergScan* (*)(IcebergScan*))dlsym(lib_handle, "iceberg_scan");
-    if (!iceberg_scan_func) {
-        fprintf(stderr, "❌ Failed to resolve iceberg_scan: %s\n", dlerror());
-        return 0;
-    }
-
     iceberg_new_scan_func = (IcebergScan* (*)(IcebergTable*))dlsym(lib_handle, "iceberg_new_scan");
     if (!iceberg_new_scan_func) {
         fprintf(stderr, "❌ Failed to resolve iceberg_new_scan: %s\n", dlerror());
         return 0;
     }
-    iceberg_arrow_stream_func = (int (*)(IcebergScan*, IcebergArrowStreamResponse*, const void*))dlsym(lib_handle, "iceberg_arrow_stream");
+
+    iceberg_scan_func = (int (*)(IcebergScan**))dlsym(lib_handle, "iceberg_scan");
+    if (!iceberg_scan_func) {
+        fprintf(stderr, "❌ Failed to resolve iceberg_scan: %s\n", dlerror());
+        return 0;
+    }
+
+    iceberg_arrow_stream_func = (int (*)(IcebergScan**, IcebergArrowStreamResponse*, const void*))dlsym(lib_handle, "iceberg_arrow_stream");
     if (!iceberg_arrow_stream_func) {
         fprintf(stderr, "❌ Failed to resolve iceberg_arrow_stream: %s\n", dlerror());
         return 0;
@@ -97,7 +98,7 @@ static int load_iceberg_library(const char* library_path) {
         return 0;
     }
 
-    iceberg_scan_free_func = (void (*)(IcebergScan*))dlsym(lib_handle, "iceberg_scan_free");
+    iceberg_scan_free_func = (void (*)(IcebergScan**))dlsym(lib_handle, "iceberg_scan_free");
     if (!iceberg_scan_free_func) {
         fprintf(stderr, "❌ Failed to resolve iceberg_scan_free: %s\n", dlerror());
         return 0;
@@ -145,7 +146,6 @@ static void unload_iceberg_library(void) {
         printf("✅ Library unloaded\n");
     }
 }
-
 
 int main(int argc, char* argv[]) {
     printf("Starting Iceberg C API integration test with new async API...\n");
@@ -241,24 +241,30 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    scan = iceberg_scan_func(scan);
+    // Print the scan pointer
+    printf("Scan pointer: %p\n", (void*)scan);
 
-    if (scan == NULL) {
+    result = iceberg_scan_func(&scan);
+
+    if (result != CRESULT_OK) {
         printf("❌ Failed to initiate scan creation\n");
         iceberg_table_free_func(table_response.table);
         unload_iceberg_library();
         return 1;
     }
 
+    // Print the scan pointer
+    printf("Scan pointer: %p\n", (void*)scan);
+
     printf("✅ Scan created successfully\n");
 
     printf("Step 1: Initializing stream asynchronously...\n");
     IcebergArrowStreamResponse stream_response = {0};
     async_completed = 0;
-    result = iceberg_arrow_stream_func(scan, &stream_response, (const void*)(uintptr_t)&async_completed);
+    result = iceberg_arrow_stream_func(&scan, &stream_response, (const void*)(uintptr_t)&async_completed);
     if (result != CRESULT_OK) {
         printf("❌ Failed to create stream\n");
-        iceberg_scan_free_func(scan);
+        iceberg_scan_free_func(&scan);
         iceberg_table_free_func(table_response.table);
         unload_iceberg_library();
         return 1;
@@ -274,7 +280,7 @@ int main(int argc, char* argv[]) {
 
     if (!async_completed) {
         printf("❌ Stream creation async operation timed out\n");
-        iceberg_scan_free_func(scan);
+        iceberg_scan_free_func(&scan);
         iceberg_table_free_func(table_response.table);
         unload_iceberg_library();
         return 1;
@@ -288,7 +294,7 @@ int main(int argc, char* argv[]) {
             iceberg_destroy_cstring_func(stream_response.error_message);
         }
         printf("\n");
-        iceberg_scan_free_func(scan);
+        iceberg_scan_free_func(&scan);
         iceberg_table_free_func(table_response.table);
         unload_iceberg_library();
         return 1;
@@ -296,7 +302,7 @@ int main(int argc, char* argv[]) {
 
     if (!stream_response.stream) {
         printf("❌ No stream returned from stream creation\n");
-        iceberg_scan_free_func(scan);
+        iceberg_scan_free_func(&scan);
         iceberg_table_free_func(table_response.table);
         unload_iceberg_library();
         return 1;
@@ -321,7 +327,7 @@ int main(int argc, char* argv[]) {
         if (!async_completed) {
             printf("❌ Batch retrieval async operation timed out\n");
             iceberg_arrow_stream_free_func(stream_response.stream);
-            iceberg_scan_free_func(scan);
+            iceberg_scan_free_func(&scan);
             iceberg_table_free_func(table_response.table);
             unload_iceberg_library();
             return 1;
@@ -335,7 +341,7 @@ int main(int argc, char* argv[]) {
             iceberg_destroy_cstring_func(batch_response.error_message);
         }
         iceberg_arrow_stream_free_func(stream_response.stream);
-        iceberg_scan_free_func(scan);
+        iceberg_scan_free_func(&scan);
         iceberg_table_free_func(table_response.table);
         unload_iceberg_library();
         return 1;
@@ -394,7 +400,7 @@ int main(int argc, char* argv[]) {
     // 5. Cleanup
     printf("Cleaning up resources...\n");
     iceberg_arrow_stream_free_func(stream_response.stream);
-    iceberg_scan_free_func(scan);
+    iceberg_scan_free_func(&scan);
     iceberg_table_free_func(table_response.table);
     unload_iceberg_library();
 

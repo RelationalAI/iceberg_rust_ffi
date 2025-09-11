@@ -85,12 +85,12 @@ void iceberg_table_free(IcebergTable* table);
 
 // Synchronous scan creation
 IcebergScan* iceberg_new_scan(IcebergTable* table);
-IcebergScan* iceberg_select_columns(IcebergScan* scan, const char** column_names, size_t num_columns);
-IcebergScan* iceberg_scan(IcebergScan* scan);
-void iceberg_scan_free(IcebergScan* scan);
+int iceberg_select_columns(IcebergScan* scan, const char** column_names, size_t num_columns);
+int iceberg_scan(IcebergScan** scan);
+void iceberg_scan_free(IcebergScan** scan);
 
 // Async streaming API
-CResult iceberg_arrow_stream(IcebergScan* scan, IcebergArrowStreamResponse* response, const void* handle);
+CResult iceberg_arrow_stream(IcebergScan** scan, IcebergArrowStreamResponse* response, const void* handle);
 CResult iceberg_next_batch(IcebergArrowStream* stream, IcebergBatchResponse* response, const void* handle);
 void iceberg_arrow_stream_free(IcebergArrowStream* stream);
 void iceberg_arrow_batch_free(ArrowBatch* batch);

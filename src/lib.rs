@@ -8,7 +8,7 @@ use arrow_array::RecordBatch;
 use arrow_ipc::writer::StreamWriter;
 use iceberg::io::FileIOBuilder;
 use iceberg::scan::{TableScan, TableScanBuilder};
-use iceberg::table::StaticTable;
+use iceberg::table::{self, StaticTable, Table};
 use iceberg::TableIdent;
 
 // Import from object_store_ffi
@@ -80,7 +80,7 @@ impl Default for IcebergStaticConfig {
 // Direct structures - no opaque wrappers
 #[repr(C)]
 pub struct IcebergTable {
-    pub table: iceberg::table::Table,
+    pub table: Table,
 }
 
 #[repr(C)]
@@ -356,9 +356,9 @@ pub extern "C" fn iceberg_select_columns(
     scan: *mut IcebergScan,
     column_names: *const *const c_char,
     num_columns: usize,
-) -> *mut IcebergScan {
+) -> CResult {
     if scan.is_null() || column_names.is_null() {
-        return ptr::null_mut();
+        return CResult::Error;
     }
 
     let mut columns = Vec::new();
@@ -366,50 +366,55 @@ pub extern "C" fn iceberg_select_columns(
     for i in 0..num_columns {
         let col_ptr = unsafe { *column_names.add(i) };
         if col_ptr.is_null() {
-            return ptr::null_mut();
+            return CResult::Error;
         }
 
         let col_str = unsafe {
             match CStr::from_ptr(col_ptr).to_str() {
                 Ok(s) => s,
-                Err(_) => return ptr::null_mut(),
+                Err(_) => return CResult::Error,
             }
         };
         columns.push(col_str.to_string());
     }
 
-    let scan = unsafe { Box::from_raw(scan) };
+    let scan_ref = unsafe { Box::from_raw(scan) };
 
-    if scan.builder.is_none() {
-        return ptr::null_mut();
+    if scan_ref.builder.is_none() {
+        return CResult::Error;
+    }
+    unsafe {
+        *scan = IcebergScan {
+            builder: scan_ref.builder.map(|b| b.select(columns)),
+            scan: scan_ref.scan,
+        };
     }
 
-    Box::into_raw(Box::new(IcebergScan {
-        builder: scan.builder.map(|b| b.select(columns)),
-        scan: scan.scan,
-    }))
+    return CResult::Ok;
 }
 
 #[no_mangle]
-pub extern "C" fn iceberg_scan(scan: *mut IcebergScan) -> *mut IcebergScan {
+pub extern "C" fn iceberg_scan(scan: *mut *mut IcebergScan) -> CResult {
     if scan.is_null() {
-        return ptr::null_mut();
+        return CResult::Error;
     }
-    let scan = unsafe { Box::from_raw(scan) };
-    if scan.builder.is_none() {
-        return ptr::null_mut();
+    let mut scan_ref = unsafe { Box::from_raw(*scan) };
+    if scan_ref.builder.is_none() {
+        return CResult::Error;
     }
-    let builder = scan.builder.unwrap();
+    let builder = scan_ref.builder.unwrap();
 
     match builder.build() {
         Ok(table_scan) => {
-            let scan_ptr = Box::into_raw(Box::new(IcebergScan {
-                scan: Some(table_scan),
-                builder: None,
-            }));
-            scan_ptr
+            unsafe {
+                *scan = Box::into_raw(Box::new(IcebergScan {
+                    builder: None,
+                    scan: Some(table_scan),
+                }));
+            }
+            CResult::Ok
         }
-        Err(_) => ptr::null_mut(),
+        Err(_) => CResult::Error,
     }
 }
 
@@ -421,7 +426,7 @@ export_runtime_op!(
         if scan.is_null() {
             return Err(anyhow::anyhow!("Null scan pointer provided"));
         }
-        let scan_ref = unsafe { &((*scan).scan) };
+        let scan_ref = unsafe { &(**scan).scan };
         if scan_ref.is_none() {
             return Err(anyhow::anyhow!("Scan not initialized"));
         }
@@ -430,12 +435,15 @@ export_runtime_op!(
     },
     scan_ref,
     async {
+        println!("HERE 2");
+
         let stream = scan_ref.to_arrow().await?;
+        println!("HERE 3");
         Ok::<IcebergArrowStream, anyhow::Error>(IcebergArrowStream {
             stream: AsyncMutex::new(stream),
         })
     },
-    scan: *mut IcebergScan
+    scan: *mut *mut IcebergScan
 );
 
 // Async function to get next batch from existing stream
@@ -479,10 +487,12 @@ pub extern "C" fn iceberg_table_free(table: *mut IcebergTable) {
 }
 
 #[no_mangle]
-pub extern "C" fn iceberg_scan_free(scan: *mut IcebergScan) {
+pub extern "C" fn iceberg_scan_free(scan: *mut *mut IcebergScan) {
     if !scan.is_null() {
         unsafe {
-            let _ = Box::from_raw(scan);
+            //let ptr = Box::from_raw(scan);
+            let _ = Box::from_raw(*scan);
+            *scan = ptr::null_mut();
         }
     }
 }
