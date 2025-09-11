@@ -97,12 +97,12 @@ unsafe impl Send for IcebergScan {}
 
 // Stream wrapper for FFI - using async mutex to avoid blocking calls
 #[repr(C)]
-pub struct IcebergStream {
+pub struct IcebergArrowStream {
     pub stream:
         AsyncMutex<futures::stream::BoxStream<'static, Result<RecordBatch, iceberg::Error>>>,
 }
 
-unsafe impl Send for IcebergStream {}
+unsafe impl Send for IcebergArrowStream {}
 
 #[repr(C)]
 pub struct ArrowBatch {
@@ -145,17 +145,17 @@ impl RawResponse for IcebergTableResponse {
 }
 
 #[repr(C)]
-pub struct IcebergStreamResponse {
+pub struct IcebergArrowStreamResponse {
     result: CResult,
-    stream: *mut IcebergStream,
+    stream: *mut IcebergArrowStream,
     error_message: *mut c_char,
     context: *const Context,
 }
 
-unsafe impl Send for IcebergStreamResponse {}
+unsafe impl Send for IcebergArrowStreamResponse {}
 
-impl RawResponse for IcebergStreamResponse {
-    type Payload = IcebergStream;
+impl RawResponse for IcebergArrowStreamResponse {
+    type Payload = IcebergArrowStream;
 
     fn result_mut(&mut self) -> &mut CResult {
         &mut self.result
@@ -405,8 +405,8 @@ pub extern "C" fn iceberg_scan(builder: *mut IcebergScanBuilder) -> *mut Iceberg
 
 // Async function to initialize stream from a table scan without getting first batch
 export_runtime_op!(
-    iceberg_stream,
-    IcebergStreamResponse,
+    iceberg_arrow_stream,
+    IcebergArrowStreamResponse,
     || {
         if scan.is_null() {
             return Err(anyhow::anyhow!("Null scan pointer provided"));
@@ -417,7 +417,7 @@ export_runtime_op!(
     scan_ref,
     async {
         let stream = scan_ref.to_arrow().await?;
-        Ok::<IcebergStream, anyhow::Error>(IcebergStream {
+        Ok::<IcebergArrowStream, anyhow::Error>(IcebergArrowStream {
             stream: AsyncMutex::new(stream),
         })
     },
@@ -451,7 +451,7 @@ export_runtime_op!(
             Err(e) => Err(anyhow::anyhow!("Error reading batch: {}", e)),
         }
     },
-    stream: *mut IcebergStream
+    stream: *mut IcebergArrowStream
 );
 
 // Synchronous operations
@@ -483,7 +483,7 @@ pub extern "C" fn iceberg_scan_builder_free(builder: *mut IcebergScanBuilder) {
 }
 
 #[no_mangle]
-pub extern "C" fn iceberg_stream_free(stream: *mut IcebergStream) {
+pub extern "C" fn iceberg_arrow_stream_free(stream: *mut IcebergArrowStream) {
     if !stream.is_null() {
         unsafe {
             let _ = Box::from_raw(stream);

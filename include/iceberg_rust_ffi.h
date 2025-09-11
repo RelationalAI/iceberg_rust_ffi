@@ -51,14 +51,14 @@ typedef struct {
 
 typedef struct {
     void *stream;
-} IcebergStream;
+} IcebergArrowStream;
 
 typedef struct {
     CResult result;
-    IcebergStream* stream;
+    IcebergArrowStream* stream;
     char* error_message;
     const Context* context;
-} IcebergStreamResponse;
+} IcebergArrowStreamResponse;
 
 typedef struct {
     CResult result;
@@ -92,9 +92,9 @@ void iceberg_scan_free(IcebergScan* scan);
 void iceberg_scan_builder_free(IcebergScanBuilder* builder);
 
 // Async streaming API
-CResult iceberg_stream(IcebergScan* scan, IcebergStreamResponse* response, const void* handle);
-CResult iceberg_next_batch(IcebergStream* stream, IcebergBatchResponse* response, const void* handle);
-void iceberg_stream_free(IcebergStream* stream);
+CResult iceberg_arrow_stream(IcebergScan* scan, IcebergArrowStreamResponse* response, const void* handle);
+CResult iceberg_next_batch(IcebergArrowStream* stream, IcebergBatchResponse* response, const void* handle);
+void iceberg_arrow_stream_free(IcebergArrowStream* stream);
 void iceberg_arrow_batch_free(ArrowBatch* batch);
 
 // Utility functions
