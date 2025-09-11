@@ -89,7 +89,6 @@ IcebergScanBuilder* iceberg_scan_builder(IcebergTable* table);
 IcebergScanBuilder* iceberg_select_columns(IcebergScanBuilder* scan, const char** column_names, size_t num_columns);
 IcebergScan* iceberg_scan(IcebergScanBuilder* builder);
 void iceberg_scan_free(IcebergScan* scan);
-void iceberg_scan_builder_free(IcebergScanBuilder* builder);
 
 // Async streaming API
 CResult iceberg_arrow_stream(IcebergScan* scan, IcebergArrowStreamResponse* response, const void* handle);
