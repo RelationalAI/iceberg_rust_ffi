@@ -8,7 +8,7 @@
 #include <stdint.h>
 
 // Global function pointers for new async API
-static int (*iceberg_init_runtime_func)(IcebergConfig config, int (*panic_callback)(void), int (*result_callback)(const void*)) = NULL;
+static int (*iceberg_init_runtime_func)(IcebergStaticConfig config, int (*panic_callback)(void), int (*result_callback)(const void*)) = NULL;
 static int (*iceberg_table_open_func)(const char*, const char*, IcebergTableResponse*, const void*) = NULL;
 static IcebergScan* (*iceberg_scan_func)(IcebergScanBuilder*) = NULL;
 static IcebergScanBuilder* (*iceberg_scan_builder_func)(IcebergTable*) = NULL;
@@ -58,7 +58,7 @@ static int load_iceberg_library(const char* library_path) {
     dlerror();
 
     // Resolve function symbols for new async API
-    iceberg_init_runtime_func = (int (*)(IcebergConfig, int (*)(void), int (*)(const void*)))dlsym(lib_handle, "iceberg_init_runtime");
+    iceberg_init_runtime_func = (int (*)(IcebergStaticConfig, int (*)(void), int (*)(const void*)))dlsym(lib_handle, "iceberg_init_runtime");
     if (!iceberg_init_runtime_func) {
         fprintf(stderr, "❌ Failed to resolve iceberg_init_runtime: %s\n", dlerror());
         return 0;
@@ -180,7 +180,7 @@ int main(int argc, char* argv[]) {
 
     // 1. Initialize the runtime
     printf("Initializing Iceberg runtime...\n");
-    IcebergConfig config = {0}; // Default config - 0 threads means use default
+    IcebergStaticConfig config = {0}; // Default config - 0 threads means use default
     int result = iceberg_init_runtime_func(config, panic_callback, result_callback);
     if (result != CRESULT_OK) {
         printf("❌ Failed to initialize runtime\n");

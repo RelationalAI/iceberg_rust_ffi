@@ -16,7 +16,7 @@ typedef struct Context Context;
 // Configuration for iceberg runtime
 typedef struct {
     size_t n_threads;
-} IcebergConfig;
+} IcebergStaticConfig;
 
 // Result types
 typedef enum {
@@ -78,22 +78,20 @@ typedef int (*PanicCallback)(void);
 typedef int (*ResultCallback)(const void* task);
 
 // Runtime initialization
-CResult iceberg_init_runtime(IcebergConfig config, PanicCallback panic_callback, ResultCallback result_callback);
+CResult iceberg_init_runtime(IcebergStaticConfig config, PanicCallback panic_callback, ResultCallback result_callback);
 
 // Async table operations
 CResult iceberg_table_open(const char* table_path, const char* metadata_path, IcebergTableResponse* response, const void* handle);
 void iceberg_free(IcebergTable* table);
 
-// Scan creation is synchronous
+// Synchronous scan creation
 IcebergScanBuilder* iceberg_scan_builder(IcebergTable* table);
 IcebergScanBuilder* iceberg_select_columns(IcebergScanBuilder* scan, const char** column_names, size_t num_columns);
 IcebergScan* iceberg_scan(IcebergScanBuilder* builder);
 void iceberg_scan_free(IcebergScan* scan);
 void iceberg_scan_builder_free(IcebergScanBuilder* builder);
 
-// Async scan operations
-
-// New simplified async API
+// Async streaming API
 CResult iceberg_stream(IcebergScan* scan, IcebergStreamResponse* response, const void* handle);
 CResult iceberg_next_batch(IcebergStream* stream, IcebergBatchResponse* response, const void* handle);
 void iceberg_stream_free(IcebergStream* stream);

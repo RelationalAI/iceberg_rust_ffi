@@ -65,13 +65,13 @@ type PanicCallback = unsafe extern "C" fn() -> i32;
 // Simple config for iceberg - only what we need
 #[derive(Copy, Clone)]
 #[repr(C)]
-pub struct IcebergConfig {
+pub struct IcebergStaticConfig {
     n_threads: usize,
 }
 
-impl Default for IcebergConfig {
+impl Default for IcebergStaticConfig {
     fn default() -> Self {
-        IcebergConfig {
+        IcebergStaticConfig {
             n_threads: 0, // 0 means use tokio's default
         }
     }
@@ -190,7 +190,7 @@ pub struct IcebergBatchResponse {
 unsafe impl Send for IcebergBatchResponse {}
 
 impl RawResponse for IcebergBatchResponse {
-    type Payload = Option<ArrowBatch>;
+    type Payload = Option<RecordBatch>;
     fn result_mut(&mut self) -> &mut CResult {
         &mut self.result
     }
@@ -202,7 +202,17 @@ impl RawResponse for IcebergBatchResponse {
     }
     fn set_payload(&mut self, payload: Option<Self::Payload>) {
         match payload.flatten() {
-            Some(batch) => self.batch = Box::into_raw(Box::new(batch)),
+            Some(batch) => {
+                let arrow_batch = serialize_record_batch(batch);
+                match arrow_batch {
+                    Ok(arrow_batch) => {
+                        self.batch = Box::into_raw(Box::new(arrow_batch));
+                    }
+                    Err(_) => {
+                        self.batch = ptr::null_mut();
+                    }
+                }
+            }
             None => self.batch = ptr::null_mut(),
         }
     }
@@ -232,7 +242,7 @@ fn serialize_record_batch(batch: RecordBatch) -> Result<ArrowBatch> {
 // Initialize runtime - configure RT and RESULT_CB directly
 #[no_mangle]
 pub extern "C" fn iceberg_init_runtime(
-    config: IcebergConfig,
+    config: IcebergStaticConfig,
     panic_callback: PanicCallback,
     result_callback: ResultCallback,
 ) -> CResult {
@@ -431,8 +441,7 @@ export_runtime_op!(
 
         match stream_guard.try_next().await {
             Ok(Some(record_batch)) => {
-                let arrow_batch = serialize_record_batch(record_batch)?;
-                Ok(Some(arrow_batch))
+                Ok(Some(record_batch))
             }
             Ok(None) => {
                 // End of stream
