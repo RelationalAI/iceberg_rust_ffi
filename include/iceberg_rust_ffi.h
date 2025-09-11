@@ -104,9 +104,6 @@ const char* iceberg_current_metrics(void);
 CResult iceberg_cancel_context(const Context* ctx);
 CResult iceberg_destroy_context(const Context* ctx);
 
-// Backward compatibility
-const char* iceberg_error_message(void);
-
 #ifdef __cplusplus
 }
 #endif

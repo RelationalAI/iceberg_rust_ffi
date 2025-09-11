@@ -504,16 +504,6 @@ pub extern "C" fn iceberg_arrow_batch_free(batch: *mut ArrowBatch) {
         }
     }
 }
-
-// Backward compatibility function for error messages
-#[no_mangle]
-pub extern "C" fn iceberg_error_message() -> *const c_char {
-    // For backward compatibility, return a generic message
-    // In the new async API, errors are returned through response structures
-    b"Error: Use new async API with response structures for detailed error information\0".as_ptr()
-        as *const c_char
-}
-
 // Re-export object_store_ffi utilities
 #[no_mangle]
 pub extern "C" fn iceberg_destroy_cstring(string: *mut c_char) -> CResult {
