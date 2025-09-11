@@ -1,3 +1,4 @@
+use futures::TryStreamExt;
 use std::ffi::{c_char, c_void, CStr};
 use std::ptr;
 use tokio::sync::Mutex as AsyncMutex;
@@ -5,8 +6,8 @@ use tokio::sync::Mutex as AsyncMutex;
 use anyhow::Result;
 use arrow_array::RecordBatch;
 use arrow_ipc::writer::StreamWriter;
-use futures::stream::StreamExt;
 use iceberg::io::FileIOBuilder;
+use iceberg::scan::{TableScan, TableScanBuilder};
 use iceberg::table::StaticTable;
 use iceberg::TableIdent;
 
@@ -82,6 +83,18 @@ pub struct IcebergTable {
     pub table: iceberg::table::Table,
 }
 
+#[repr(C)]
+pub struct IcebergScanBuilder {
+    pub builder: TableScanBuilder<'static>,
+}
+
+#[repr(C)]
+pub struct IcebergScan {
+    pub scan: TableScan,
+}
+
+unsafe impl Send for IcebergScan {}
+
 // Stream wrapper for FFI - using async mutex to avoid blocking calls
 #[repr(C)]
 pub struct IcebergStream {
@@ -90,19 +103,6 @@ pub struct IcebergStream {
 }
 
 unsafe impl Send for IcebergStream {}
-
-#[repr(C)]
-pub struct IcebergScan {
-    pub table: Option<iceberg::table::Table>,
-    pub columns: Option<Vec<String>>,
-    pub stream: Option<*mut IcebergStream>,
-}
-
-// SAFETY: IcebergScan can be safely sent between threads because:
-// - table: iceberg::table::Table is Send
-// - columns: Vec<String> is Send
-// - stream, current_batch: raw pointers are Send by our design (we control access)
-unsafe impl Send for IcebergScan {}
 
 #[repr(C)]
 pub struct ArrowBatch {
@@ -123,7 +123,7 @@ pub struct IcebergTableResponse {
 unsafe impl Send for IcebergTableResponse {}
 
 impl RawResponse for IcebergTableResponse {
-    type Payload = *mut IcebergTable;
+    type Payload = IcebergTable;
     fn result_mut(&mut self) -> &mut CResult {
         &mut self.result
     }
@@ -135,37 +135,46 @@ impl RawResponse for IcebergTableResponse {
     }
     fn set_payload(&mut self, payload: Option<Self::Payload>) {
         match payload {
-            Some(table_ptr) => self.table = table_ptr,
+            Some(table) => {
+                let table_ptr = Box::into_raw(Box::new(table));
+                self.table = table_ptr;
+            }
             None => self.table = ptr::null_mut(),
         }
     }
 }
 
 #[repr(C)]
-pub struct IcebergScanResponse {
+pub struct IcebergStreamResponse {
     result: CResult,
-    scan: *mut IcebergScan,
+    stream: *mut IcebergStream,
     error_message: *mut c_char,
     context: *const Context,
 }
 
-unsafe impl Send for IcebergScanResponse {}
+unsafe impl Send for IcebergStreamResponse {}
 
-impl RawResponse for IcebergScanResponse {
-    type Payload = *mut IcebergScan;
+impl RawResponse for IcebergStreamResponse {
+    type Payload = IcebergStream;
+
     fn result_mut(&mut self) -> &mut CResult {
         &mut self.result
     }
+
     fn context_mut(&mut self) -> &mut *const Context {
         &mut self.context
     }
+
     fn error_message_mut(&mut self) -> &mut *mut c_char {
         &mut self.error_message
     }
+
     fn set_payload(&mut self, payload: Option<Self::Payload>) {
         match payload {
-            Some(scan_ptr) => self.scan = scan_ptr,
-            None => self.scan = ptr::null_mut(),
+            Some(stream) => {
+                self.stream = Box::into_raw(Box::new(stream));
+            }
+            None => self.stream = ptr::null_mut(),
         }
     }
 }
@@ -181,7 +190,7 @@ pub struct IcebergBatchResponse {
 unsafe impl Send for IcebergBatchResponse {}
 
 impl RawResponse for IcebergBatchResponse {
-    type Payload = *mut ArrowBatch;
+    type Payload = Option<ArrowBatch>;
     fn result_mut(&mut self) -> &mut CResult {
         &mut self.result
     }
@@ -192,8 +201,8 @@ impl RawResponse for IcebergBatchResponse {
         &mut self.error_message
     }
     fn set_payload(&mut self, payload: Option<Self::Payload>) {
-        match payload {
-            Some(batch_ptr) => self.batch = batch_ptr,
+        match payload.flatten() {
+            Some(batch) => self.batch = Box::into_raw(Box::new(batch)),
             None => self.batch = ptr::null_mut(),
         }
     }
@@ -317,135 +326,123 @@ export_runtime_op!(
             StaticTable::from_metadata_file(&full_metadata_path, table_ident, file_io).await?;
 
         tracing::info!("Successfully loaded static table, converting to table");
-        let iceberg_table = static_table.into_table();
-
-        let table_ptr = Box::into_raw(Box::new(IcebergTable {
-            table: iceberg_table,
-        }));
-
-        Ok::<*mut IcebergTable, anyhow::Error>(table_ptr)
+        Ok::<IcebergTable, anyhow::Error>(IcebergTable { table: static_table.into_table() })
     },
     table_path: *const c_char,
     metadata_path: *const c_char
 );
 
-// Use export_runtime_op! macro for scan creation
-export_runtime_op!(
-    iceberg_table_scan,
-    IcebergScanResponse,
-    || {
-        if table.is_null() {
-            return Err(anyhow::anyhow!("Null table pointer provided"));
-        }
-        let table_ref = unsafe { &*table };
-        Ok(table_ref.table.clone())
-    },
-    iceberg_table,
-    async {
-        let scan_ptr = Box::into_raw(Box::new(IcebergScan {
-            table: Some(iceberg_table),
-            columns: None,
-            stream: None,
-        }));
-        Ok::<*mut IcebergScan, anyhow::Error>(scan_ptr)
-    },
-    table: *mut IcebergTable
-);
+#[no_mangle]
+pub extern "C" fn iceberg_scan_builder(table: *mut IcebergTable) -> *mut IcebergScanBuilder {
+    if table.is_null() {
+        return ptr::null_mut();
+    }
+    let table_ref = unsafe { &*table };
+    let scan_builder = table_ref.table.scan();
+    return Box::into_raw(Box::new(IcebergScanBuilder {
+        builder: scan_builder,
+    }));
+}
 
-// Async function to initialize stream without getting first batch
+#[no_mangle]
+pub extern "C" fn iceberg_select_columns(
+    builder: *mut IcebergScanBuilder,
+    column_names: *const *const c_char,
+    num_columns: usize,
+) -> *mut IcebergScanBuilder {
+    if builder.is_null() || column_names.is_null() {
+        return ptr::null_mut();
+    }
+
+    let mut columns = Vec::new();
+
+    for i in 0..num_columns {
+        let col_ptr = unsafe { *column_names.add(i) };
+        if col_ptr.is_null() {
+            return ptr::null_mut();
+        }
+
+        let col_str = unsafe {
+            match CStr::from_ptr(col_ptr).to_str() {
+                Ok(s) => s,
+                Err(_) => return ptr::null_mut(),
+            }
+        };
+        columns.push(col_str.to_string());
+    }
+
+    let builder = unsafe { Box::from_raw(builder).builder };
+
+    Box::into_raw(Box::new(IcebergScanBuilder {
+        builder: builder.select(columns),
+    }))
+}
+
+#[no_mangle]
+pub extern "C" fn iceberg_scan(builder: *mut IcebergScanBuilder) -> *mut IcebergScan {
+    if builder.is_null() {
+        return ptr::null_mut();
+    }
+    let builder = unsafe { Box::from_raw(builder).builder };
+    match builder.build() {
+        Ok(table_scan) => {
+            let scan_ptr = Box::into_raw(Box::new(IcebergScan { scan: table_scan }));
+            scan_ptr
+        }
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+// Async function to initialize stream from a table scan without getting first batch
 export_runtime_op!(
-    iceberg_scan_init_stream,
-    IcebergResponse,
+    iceberg_stream,
+    IcebergStreamResponse,
     || {
         if scan.is_null() {
             return Err(anyhow::anyhow!("Null scan pointer provided"));
         }
-        let scan_ref = unsafe { &*scan };
-
-        // Only initialize if we don't already have a stream
-        if scan_ref.stream.is_some() {
-            return Err(anyhow::anyhow!("Stream already exists"));
-        }
-
-        if let Some(table) = &scan_ref.table {
-            let columns = scan_ref.columns.clone();
-            let table_clone = table.clone();
-            let scan_ref = unsafe { &mut *(scan as *mut IcebergScan) };
-            Ok((table_clone, columns, scan_ref))
-        } else {
-            Err(anyhow::anyhow!("Table not available"))
-        }
+        let scan_ref = unsafe { &((*scan).scan) };
+        return Ok(scan_ref)
     },
-    scan_data,
+    scan_ref,
     async {
-        let (table, columns, scan_ref) = scan_data;
-
-        // Create new stream but don't get first batch
-        let mut scan_builder = table.scan();
-        if let Some(cols) = columns {
-            scan_builder = scan_builder.select(cols);
-        }
-
-        let table_scan = scan_builder.build()?;
-        let stream = table_scan.to_arrow().await?;
-
-        // Create stream wrapper
-        let iceberg_stream = Box::new(IcebergStream {
+        let stream = scan_ref.to_arrow().await?;
+        Ok::<IcebergStream, anyhow::Error>(IcebergStream {
             stream: AsyncMutex::new(stream),
-        });
-        let stream_ptr = Box::into_raw(iceberg_stream);
-
-        tracing::info!("Created stream pointer successfully: {:?}", stream_ptr);
-
-        // Store stream in scan
-        scan_ref.stream = Some(stream_ptr);
-
-        // Return success (no payload needed)
-        Ok::<(), anyhow::Error>(())
+        })
     },
     scan: *mut IcebergScan
 );
 
 // Async function to get next batch from existing stream
 export_runtime_op!(
-    iceberg_scan_next_batch,
+    iceberg_next_batch,
     IcebergBatchResponse,
     || {
-        if scan.is_null() {
-            return Err(anyhow::anyhow!("Null scan pointer provided"));
+        if stream.is_null() {
+            return Err(anyhow::anyhow!("Null stream pointer provided"));
         }
-        let scan_ref = unsafe { &*scan };
-
-        tracing::debug!("Checking for stream in scan, current stream pointer: {:?}", scan_ref.stream);
-
-        if let Some(stream_ptr) = scan_ref.stream {
-            tracing::debug!("Found stream pointer: {:?}", stream_ptr);
-            let stream_ref = unsafe { &*stream_ptr };
-            Ok(stream_ref)
-        } else {
-            tracing::error!("No stream available in scan");
-            Err(anyhow::anyhow!("No stream available"))
-        }
+        let stream_ref = unsafe { &*stream };
+        Ok(stream_ref)
     },
     stream_ref,
     async {
         let mut stream_guard = stream_ref.stream.lock().await;
 
-        match stream_guard.next().await {
-            Some(Ok(record_batch)) => {
+        match stream_guard.try_next().await {
+            Ok(Some(record_batch)) => {
                 let arrow_batch = serialize_record_batch(record_batch)?;
-                let batch_ptr = Box::into_raw(Box::new(arrow_batch));
-                Ok(batch_ptr)
+                Ok(Some(arrow_batch))
             }
-            Some(Err(e)) => return Err(anyhow::anyhow!("Error reading batch: {}", e)),
-            None => {
-                // End of stream - return null pointer
-                tracing::debug!("End of stream reached, returning null pointer");
-                Ok(ptr::null_mut())
+            Ok(None) => {
+                // End of stream
+                tracing::debug!("End of stream reached");
+                Ok(None)
             }
+            Err(e) => Err(anyhow::anyhow!("Error reading batch: {}", e)),
         }
     },
-    scan: *mut IcebergScan
+    stream: *mut IcebergStream
 );
 
 // Synchronous operations
@@ -459,48 +456,28 @@ pub extern "C" fn iceberg_table_free(table: *mut IcebergTable) {
 }
 
 #[no_mangle]
-pub extern "C" fn iceberg_scan_select_columns(
-    scan: *mut IcebergScan,
-    column_names: *const *const c_char,
-    num_columns: usize,
-) -> CResult {
-    if scan.is_null() || column_names.is_null() {
-        return CResult::Error;
-    }
-
-    let scan_ref = unsafe { &mut *scan };
-    let mut columns = Vec::new();
-
-    for i in 0..num_columns {
-        let col_ptr = unsafe { *column_names.add(i) };
-        if col_ptr.is_null() {
-            return CResult::Error;
-        }
-
-        let col_str = unsafe {
-            match CStr::from_ptr(col_ptr).to_str() {
-                Ok(s) => s,
-                Err(_) => return CResult::Error,
-            }
-        };
-
-        columns.push(col_str.to_string());
-    }
-
-    scan_ref.columns = Some(columns);
-    CResult::Ok
-}
-
-#[no_mangle]
 pub extern "C" fn iceberg_scan_free(scan: *mut IcebergScan) {
     if !scan.is_null() {
         unsafe {
-            let scan_ref = Box::from_raw(scan);
-            // Clean up any stream
-            if let Some(stream_ptr) = scan_ref.stream {
-                let stream = Box::from_raw(stream_ptr);
-                drop(stream);
-            }
+            let _ = Box::from_raw(scan);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn iceberg_scan_builder_free(builder: *mut IcebergScanBuilder) {
+    if !builder.is_null() {
+        unsafe {
+            let _ = Box::from_raw(builder);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn iceberg_stream_free(stream: *mut IcebergStream) {
+    if !stream.is_null() {
+        unsafe {
+            let _ = Box::from_raw(stream);
         }
     }
 }

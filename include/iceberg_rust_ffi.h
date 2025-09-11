@@ -31,13 +31,6 @@ typedef struct {
     void* rust_ptr;
 } ArrowBatch;
 
-// IcebergScan structure - now exposed for direct field access
-typedef struct {
-    void* table;              // Option<iceberg::table::Table> - opaque
-    void* columns;            // Option<Vec<String>> - opaque
-    void* stream;             // Option<*mut IcebergStream> - opaque
-} IcebergScan;
-
 // Response structures for async operations
 typedef struct {
     CResult result;
@@ -46,6 +39,9 @@ typedef struct {
     const Context* context;
 } IcebergTableResponse;
 
+typedef struct IcebergScanBuilder IcebergScanBuilder;
+typedef struct IcebergScan IcebergScan;
+
 typedef struct {
     CResult result;
     IcebergScan* scan;
@@ -53,6 +49,16 @@ typedef struct {
     const Context* context;
 } IcebergScanResponse;
 
+typedef struct {
+    void *stream;
+} IcebergStream;
+
+typedef struct {
+    CResult result;
+    IcebergStream* stream;
+    char* error_message;
+    const Context* context;
+} IcebergStreamResponse;
 
 typedef struct {
     CResult result;
@@ -76,16 +82,21 @@ CResult iceberg_init_runtime(IcebergConfig config, PanicCallback panic_callback,
 
 // Async table operations
 CResult iceberg_table_open(const char* table_path, const char* metadata_path, IcebergTableResponse* response, const void* handle);
-void iceberg_table_free(IcebergTable* table);
+void iceberg_free(IcebergTable* table);
+
+// Scan creation is synchronous
+IcebergScanBuilder* iceberg_scan_builder(IcebergTable* table);
+IcebergScanBuilder* iceberg_select_columns(IcebergScanBuilder* scan, const char** column_names, size_t num_columns);
+IcebergScan* iceberg_scan(IcebergScanBuilder* builder);
+void iceberg_scan_free(IcebergScan* scan);
+void iceberg_scan_builder_free(IcebergScanBuilder* builder);
 
 // Async scan operations
-CResult iceberg_table_scan(IcebergTable* table, IcebergScanResponse* response, const void* handle);
-CResult iceberg_scan_select_columns(IcebergScan* scan, const char** column_names, size_t num_columns);
-void iceberg_scan_free(IcebergScan* scan);
 
 // New simplified async API
-CResult iceberg_scan_init_stream(IcebergScan* scan, IcebergResponse* response, const void* handle);
-CResult iceberg_scan_next_batch(IcebergScan* scan, IcebergBatchResponse* response, const void* handle);
+CResult iceberg_stream(IcebergScan* scan, IcebergStreamResponse* response, const void* handle);
+CResult iceberg_next_batch(IcebergStream* stream, IcebergBatchResponse* response, const void* handle);
+void iceberg_stream_free(IcebergStream* stream);
 void iceberg_arrow_batch_free(ArrowBatch* batch);
 
 // Utility functions
