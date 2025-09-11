@@ -84,13 +84,9 @@ pub struct IcebergTable {
 }
 
 #[repr(C)]
-pub struct IcebergScanBuilder {
-    pub builder: TableScanBuilder<'static>,
-}
-
-#[repr(C)]
 pub struct IcebergScan {
-    pub scan: TableScan,
+    pub builder: Option<TableScanBuilder<'static>>,
+    pub scan: Option<TableScan>,
 }
 
 unsafe impl Send for IcebergScan {}
@@ -343,24 +339,25 @@ export_runtime_op!(
 );
 
 #[no_mangle]
-pub extern "C" fn iceberg_scan_builder(table: *mut IcebergTable) -> *mut IcebergScanBuilder {
+pub extern "C" fn iceberg_new_scan(table: *mut IcebergTable) -> *mut IcebergScan {
     if table.is_null() {
         return ptr::null_mut();
     }
     let table_ref = unsafe { &*table };
     let scan_builder = table_ref.table.scan();
-    return Box::into_raw(Box::new(IcebergScanBuilder {
-        builder: scan_builder,
+    return Box::into_raw(Box::new(IcebergScan {
+        builder: Some(scan_builder),
+        scan: None,
     }));
 }
 
 #[no_mangle]
 pub extern "C" fn iceberg_select_columns(
-    builder: *mut IcebergScanBuilder,
+    scan: *mut IcebergScan,
     column_names: *const *const c_char,
     num_columns: usize,
-) -> *mut IcebergScanBuilder {
-    if builder.is_null() || column_names.is_null() {
+) -> *mut IcebergScan {
+    if scan.is_null() || column_names.is_null() {
         return ptr::null_mut();
     }
 
@@ -381,22 +378,35 @@ pub extern "C" fn iceberg_select_columns(
         columns.push(col_str.to_string());
     }
 
-    let builder = unsafe { Box::from_raw(builder).builder };
+    let scan = unsafe { Box::from_raw(scan) };
 
-    Box::into_raw(Box::new(IcebergScanBuilder {
-        builder: builder.select(columns),
+    if scan.builder.is_none() {
+        return ptr::null_mut();
+    }
+
+    Box::into_raw(Box::new(IcebergScan {
+        builder: scan.builder.map(|b| b.select(columns)),
+        scan: scan.scan,
     }))
 }
 
 #[no_mangle]
-pub extern "C" fn iceberg_scan(builder: *mut IcebergScanBuilder) -> *mut IcebergScan {
-    if builder.is_null() {
+pub extern "C" fn iceberg_scan(scan: *mut IcebergScan) -> *mut IcebergScan {
+    if scan.is_null() {
         return ptr::null_mut();
     }
-    let builder = unsafe { Box::from_raw(builder).builder };
+    let scan = unsafe { Box::from_raw(scan) };
+    if scan.builder.is_none() {
+        return ptr::null_mut();
+    }
+    let builder = scan.builder.unwrap();
+
     match builder.build() {
         Ok(table_scan) => {
-            let scan_ptr = Box::into_raw(Box::new(IcebergScan { scan: table_scan }));
+            let scan_ptr = Box::into_raw(Box::new(IcebergScan {
+                scan: Some(table_scan),
+                builder: None,
+            }));
             scan_ptr
         }
         Err(_) => ptr::null_mut(),
@@ -412,7 +422,11 @@ export_runtime_op!(
             return Err(anyhow::anyhow!("Null scan pointer provided"));
         }
         let scan_ref = unsafe { &((*scan).scan) };
-        return Ok(scan_ref)
+        if scan_ref.is_none() {
+            return Err(anyhow::anyhow!("Scan not initialized"));
+        }
+
+        return Ok(scan_ref.as_ref().unwrap());
     },
     scan_ref,
     async {
@@ -469,15 +483,6 @@ pub extern "C" fn iceberg_scan_free(scan: *mut IcebergScan) {
     if !scan.is_null() {
         unsafe {
             let _ = Box::from_raw(scan);
-        }
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn iceberg_scan_builder_free(builder: *mut IcebergScanBuilder) {
-    if !builder.is_null() {
-        unsafe {
-            let _ = Box::from_raw(builder);
         }
     }
 }

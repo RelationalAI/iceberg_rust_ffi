@@ -39,7 +39,6 @@ typedef struct {
     const Context* context;
 } IcebergTableResponse;
 
-typedef struct IcebergScanBuilder IcebergScanBuilder;
 typedef struct IcebergScan IcebergScan;
 
 typedef struct {
@@ -82,12 +81,12 @@ CResult iceberg_init_runtime(IcebergStaticConfig config, PanicCallback panic_cal
 
 // Async table operations
 CResult iceberg_table_open(const char* table_path, const char* metadata_path, IcebergTableResponse* response, const void* handle);
-void iceberg_free(IcebergTable* table);
+void iceberg_table_free(IcebergTable* table);
 
 // Synchronous scan creation
-IcebergScanBuilder* iceberg_scan_builder(IcebergTable* table);
-IcebergScanBuilder* iceberg_select_columns(IcebergScanBuilder* scan, const char** column_names, size_t num_columns);
-IcebergScan* iceberg_scan(IcebergScanBuilder* builder);
+IcebergScan* iceberg_new_scan(IcebergTable* table);
+IcebergScan* iceberg_select_columns(IcebergScan* scan, const char** column_names, size_t num_columns);
+IcebergScan* iceberg_scan(IcebergScan* scan);
 void iceberg_scan_free(IcebergScan* scan);
 
 // Async streaming API
@@ -103,6 +102,7 @@ const char* iceberg_current_metrics(void);
 // Context management functions for cancellation support
 CResult iceberg_cancel_context(const Context* ctx);
 CResult iceberg_destroy_context(const Context* ctx);
+
 
 #ifdef __cplusplus
 }
