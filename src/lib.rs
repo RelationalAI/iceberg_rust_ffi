@@ -386,6 +386,10 @@ export_runtime_op!(
             scan_builder = scan_builder.select(cols);
         }
 
+        if batch_size > 0 {
+            scan_builder = scan_builder.with_batch_size(Some(batch_size));
+        }
+
         let table_scan = scan_builder.build()?;
         let stream = table_scan.to_arrow().await?;
 
@@ -403,7 +407,8 @@ export_runtime_op!(
         // Return success (no payload needed)
         Ok::<(), anyhow::Error>(())
     },
-    scan: *mut IcebergScan
+    scan: *mut IcebergScan,
+    batch_size: usize
 );
 
 // Async function to get next batch from existing stream
