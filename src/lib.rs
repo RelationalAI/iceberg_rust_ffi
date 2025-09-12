@@ -395,7 +395,7 @@ pub extern "C" fn iceberg_select_columns(
 
 #[no_mangle]
 pub extern "C" fn iceberg_scan(scan: *mut *mut IcebergScan) -> CResult {
-    if scan.is_null() {
+    if scan.is_null() || unsafe { (*scan).is_null() } {
         return CResult::Error;
     }
     let scan_ref = unsafe { Box::from_raw(*scan) };
