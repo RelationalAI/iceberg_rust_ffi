@@ -391,7 +391,7 @@ export_runtime_op!(
         }
 
         if concurrency_limit > 0 {
-            scan_builder = scan_builder.with_concurrency_limit(concurrency_limit);
+            scan_builder = scan_builder.with_data_file_concurrency_limit(concurrency_limit);
         }
 
         let table_scan = scan_builder.build()?;
