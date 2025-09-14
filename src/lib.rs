@@ -390,6 +390,10 @@ export_runtime_op!(
             scan_builder = scan_builder.with_batch_size(Some(batch_size));
         }
 
+        if concurrency_limit > 0 {
+            scan_builder = scan_builder.with_concurrency_limit(concurrency_limit);
+        }
+
         let table_scan = scan_builder.build()?;
         let stream = table_scan.to_arrow().await?;
 
@@ -408,7 +412,8 @@ export_runtime_op!(
         Ok::<(), anyhow::Error>(())
     },
     scan: *mut IcebergScan,
-    batch_size: usize
+    batch_size: usize,
+    concurrency_limit: usize
 );
 
 // Async function to get next batch from existing stream

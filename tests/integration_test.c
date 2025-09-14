@@ -11,7 +11,7 @@
 static int (*iceberg_init_runtime_func)(IcebergConfig config, int (*panic_callback)(void), int (*result_callback)(const void*)) = NULL;
 static int (*iceberg_table_open_func)(const char*, const char*, IcebergTableResponse*, const void*) = NULL;
 static int (*iceberg_table_scan_func)(IcebergTable*, IcebergScanResponse*, const void*) = NULL;
-static int (*iceberg_scan_init_stream_func)(IcebergScan*, size_t, IcebergResponse*, const void*) = NULL;
+static int (*iceberg_scan_init_stream_func)(IcebergScan*, size_t, size_t, IcebergResponse*, const void*) = NULL;
 static int (*iceberg_scan_next_batch_func)(IcebergScan*, IcebergBatchResponse*, const void*) = NULL;
 static void (*iceberg_table_free_func)(IcebergTable*) = NULL;
 static void (*iceberg_scan_free_func)(IcebergScan*) = NULL;
@@ -73,7 +73,7 @@ static int load_iceberg_library(const char* library_path) {
         return 0;
     }
 
-    iceberg_scan_init_stream_func = (int (*)(IcebergScan*, size_t, IcebergResponse*, const void*))dlsym(lib_handle, "iceberg_scan_init_stream");
+    iceberg_scan_init_stream_func = (int (*)(IcebergScan*, size_t, size_t, IcebergResponse*, const void*))dlsym(lib_handle, "iceberg_scan_init_stream");
     if (!iceberg_scan_init_stream_func) {
         fprintf(stderr, "❌ Failed to resolve iceberg_scan_init_stream: %s\n", dlerror());
         return 0;
@@ -274,7 +274,8 @@ int main(int argc, char* argv[]) {
     IcebergResponse init_response = {0};
     async_completed = 0;  // Reset flag
     size_t batch_size = 2;
-    result = iceberg_scan_init_stream_func(scan_response.scan, batch_size, &init_response, (const void*)(uintptr_t)&async_completed);
+    size_t concurrency_limit = 1;
+    result = iceberg_scan_init_stream_func(scan_response.scan, batch_size, concurrency_limit, &init_response, (const void*)(uintptr_t)&async_completed);
 
     if (result == CRESULT_OK) {
         // Wait for async operation to complete
