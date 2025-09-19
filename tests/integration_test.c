@@ -11,7 +11,7 @@
 static int (*iceberg_init_runtime_func)(IcebergStaticConfig config, int (*panic_callback)(void), int (*result_callback)(const void*)) = NULL;
 static int (*iceberg_table_open_func)(const char*, const char*, IcebergTableResponse*, const void*) = NULL;
 static IcebergScan* (*iceberg_new_scan_func)(IcebergTable*) = NULL;
-static int (*iceberg_scan_func)(IcebergScan**) = NULL;
+static int (*iceberg_scan_build_func)(IcebergScan**) = NULL;
 static void (*iceberg_scan_free_func)(IcebergScan**) = NULL;
 static int (*iceberg_arrow_stream_func)(IcebergScan*, IcebergArrowStreamResponse*, const void*) = NULL;
 static int (*iceberg_next_batch_func)(IcebergArrowStream*, IcebergBatchResponse*, const void*) = NULL;
@@ -75,9 +75,9 @@ static int load_iceberg_library(const char* library_path) {
         return 0;
     }
 
-    iceberg_scan_func = (int (*)(IcebergScan**))dlsym(lib_handle, "iceberg_scan");
-    if (!iceberg_scan_func) {
-        fprintf(stderr, "❌ Failed to resolve iceberg_scan: %s\n", dlerror());
+    iceberg_scan_build_func = (int (*)(IcebergScan**))dlsym(lib_handle, "iceberg_scan_build");
+    if (!iceberg_scan_build_func) {
+        fprintf(stderr, "❌ Failed to resolve iceberg_scan_build: %s\n", dlerror());
         return 0;
     }
 
@@ -244,7 +244,7 @@ int main(int argc, char* argv[]) {
     // Print the scan pointer
     printf("Scan pointer: %p\n", (void*)scan);
 
-    result = iceberg_scan_func(&scan);
+    result = iceberg_scan_build_func(&scan);
 
     if (result != CRESULT_OK) {
         printf("❌ Failed to initiate scan creation\n");

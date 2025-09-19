@@ -394,7 +394,80 @@ pub extern "C" fn iceberg_select_columns(
 }
 
 #[no_mangle]
-pub extern "C" fn iceberg_scan(scan: *mut *mut IcebergScan) -> CResult {
+pub extern "C" fn iceberg_scan_with_data_file_concurrency_limit(
+    scan: *mut *mut IcebergScan,
+    n: usize,
+) -> CResult {
+    if scan.is_null() {
+        return CResult::Error;
+    }
+    let scan_ref = unsafe { Box::from_raw(*scan) };
+
+    if scan_ref.builder.is_none() {
+        return CResult::Error;
+    }
+
+    unsafe {
+        *scan = Box::into_raw(Box::new(IcebergScan {
+            builder: scan_ref
+                .builder
+                .map(|b| b.with_data_file_concurrency_limit(n)),
+            scan: scan_ref.scan,
+        }));
+    }
+
+    return CResult::Ok;
+}
+
+#[no_mangle]
+pub extern "C" fn iceberg_scan_with_manifest_entry_concurrency_limit(
+    scan: *mut *mut IcebergScan,
+    n: usize,
+) -> CResult {
+    if scan.is_null() {
+        return CResult::Error;
+    }
+    let scan_ref = unsafe { Box::from_raw(*scan) };
+
+    if scan_ref.builder.is_none() {
+        return CResult::Error;
+    }
+
+    unsafe {
+        *scan = Box::into_raw(Box::new(IcebergScan {
+            builder: scan_ref
+                .builder
+                .map(|b| b.with_manifest_entry_concurrency_limit(n)),
+            scan: scan_ref.scan,
+        }));
+    }
+
+    return CResult::Ok;
+}
+
+#[no_mangle]
+pub extern "C" fn iceberg_scan_with_batch_size(scan: *mut *mut IcebergScan, n: usize) -> CResult {
+    if scan.is_null() {
+        return CResult::Error;
+    }
+    let scan_ref = unsafe { Box::from_raw(*scan) };
+
+    if scan_ref.builder.is_none() {
+        return CResult::Error;
+    }
+
+    unsafe {
+        *scan = Box::into_raw(Box::new(IcebergScan {
+            builder: scan_ref.builder.map(|b| b.with_batch_size(Some(n))),
+            scan: scan_ref.scan,
+        }));
+    }
+
+    return CResult::Ok;
+}
+
+#[no_mangle]
+pub extern "C" fn iceberg_scan_build(scan: *mut *mut IcebergScan) -> CResult {
     if scan.is_null() || unsafe { (*scan).is_null() } {
         return CResult::Error;
     }
