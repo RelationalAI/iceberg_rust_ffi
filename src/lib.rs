@@ -547,10 +547,9 @@ pub extern "C" fn iceberg_table_free(table: *mut IcebergTable) {
 }
 
 #[no_mangle]
-pub extern "C" fn iceberg_scan_free(scan: *mut *mut IcebergScan) {
+pub extern "C" fn iceberg_scan_free(scan: &mut *mut IcebergScan) {
     if !scan.is_null() {
         unsafe {
-            //let ptr = Box::from_raw(scan);
             let _ = Box::from_raw(*scan);
             *scan = ptr::null_mut();
         }
