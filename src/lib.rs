@@ -353,11 +353,11 @@ pub extern "C" fn iceberg_new_scan(table: *mut IcebergTable) -> *mut IcebergScan
 
 #[no_mangle]
 pub extern "C" fn iceberg_select_columns(
-    scan: *mut *mut IcebergScan,
+    scan: &mut *mut IcebergScan,
     column_names: *const *const c_char,
     num_columns: usize,
 ) -> CResult {
-    if scan.is_null() || column_names.is_null() {
+    if scan.is_null() || (*scan).is_null() || column_names.is_null() {
         return CResult::Error;
     }
 
@@ -383,22 +383,20 @@ pub extern "C" fn iceberg_select_columns(
     if scan_ref.builder.is_none() {
         return CResult::Error;
     }
-    unsafe {
-        *scan = Box::into_raw(Box::new(IcebergScan {
-            builder: scan_ref.builder.map(|b| b.select(columns)),
-            scan: scan_ref.scan,
-        }));
-    }
+    *scan = Box::into_raw(Box::new(IcebergScan {
+        builder: scan_ref.builder.map(|b| b.select(columns)),
+        scan: scan_ref.scan,
+    }));
 
     return CResult::Ok;
 }
 
 #[no_mangle]
 pub extern "C" fn iceberg_scan_with_data_file_concurrency_limit(
-    scan: *mut *mut IcebergScan,
+    scan: &mut *mut IcebergScan,
     n: usize,
 ) -> CResult {
-    if scan.is_null() {
+    if scan.is_null() || (*scan).is_null() {
         return CResult::Error;
     }
     let scan_ref = unsafe { Box::from_raw(*scan) };
@@ -407,24 +405,22 @@ pub extern "C" fn iceberg_scan_with_data_file_concurrency_limit(
         return CResult::Error;
     }
 
-    unsafe {
-        *scan = Box::into_raw(Box::new(IcebergScan {
-            builder: scan_ref
-                .builder
-                .map(|b| b.with_data_file_concurrency_limit(n)),
-            scan: scan_ref.scan,
-        }));
-    }
+    *scan = Box::into_raw(Box::new(IcebergScan {
+        builder: scan_ref
+            .builder
+            .map(|b| b.with_data_file_concurrency_limit(n)),
+        scan: scan_ref.scan,
+    }));
 
     return CResult::Ok;
 }
 
 #[no_mangle]
 pub extern "C" fn iceberg_scan_with_manifest_entry_concurrency_limit(
-    scan: *mut *mut IcebergScan,
+    scan: &mut *mut IcebergScan,
     n: usize,
 ) -> CResult {
-    if scan.is_null() {
+    if scan.is_null() || (*scan).is_null() {
         return CResult::Error;
     }
     let scan_ref = unsafe { Box::from_raw(*scan) };
@@ -433,21 +429,19 @@ pub extern "C" fn iceberg_scan_with_manifest_entry_concurrency_limit(
         return CResult::Error;
     }
 
-    unsafe {
-        *scan = Box::into_raw(Box::new(IcebergScan {
-            builder: scan_ref
-                .builder
-                .map(|b| b.with_manifest_entry_concurrency_limit(n)),
-            scan: scan_ref.scan,
-        }));
-    }
+    *scan = Box::into_raw(Box::new(IcebergScan {
+        builder: scan_ref
+            .builder
+            .map(|b| b.with_manifest_entry_concurrency_limit(n)),
+        scan: scan_ref.scan,
+    }));
 
     return CResult::Ok;
 }
 
 #[no_mangle]
-pub extern "C" fn iceberg_scan_with_batch_size(scan: *mut *mut IcebergScan, n: usize) -> CResult {
-    if scan.is_null() {
+pub extern "C" fn iceberg_scan_with_batch_size(scan: &mut *mut IcebergScan, n: usize) -> CResult {
+    if scan.is_null() || (*scan).is_null() {
         return CResult::Error;
     }
     let scan_ref = unsafe { Box::from_raw(*scan) };
@@ -456,19 +450,17 @@ pub extern "C" fn iceberg_scan_with_batch_size(scan: *mut *mut IcebergScan, n: u
         return CResult::Error;
     }
 
-    unsafe {
-        *scan = Box::into_raw(Box::new(IcebergScan {
-            builder: scan_ref.builder.map(|b| b.with_batch_size(Some(n))),
-            scan: scan_ref.scan,
-        }));
-    }
+    *scan = Box::into_raw(Box::new(IcebergScan {
+        builder: scan_ref.builder.map(|b| b.with_batch_size(Some(n))),
+        scan: scan_ref.scan,
+    }));
 
     return CResult::Ok;
 }
 
 #[no_mangle]
-pub extern "C" fn iceberg_scan_build(scan: *mut *mut IcebergScan) -> CResult {
-    if scan.is_null() || unsafe { (*scan).is_null() } {
+pub extern "C" fn iceberg_scan_build(scan: &mut *mut IcebergScan) -> CResult {
+    if scan.is_null() || (*scan).is_null() {
         return CResult::Error;
     }
     let scan_ref = unsafe { Box::from_raw(*scan) };
@@ -479,12 +471,10 @@ pub extern "C" fn iceberg_scan_build(scan: *mut *mut IcebergScan) -> CResult {
 
     match builder.build() {
         Ok(table_scan) => {
-            unsafe {
-                *scan = Box::into_raw(Box::new(IcebergScan {
-                    builder: None,
-                    scan: Some(table_scan),
-                }));
-            }
+            *scan = Box::into_raw(Box::new(IcebergScan {
+                builder: None,
+                scan: Some(table_scan),
+            }));
             CResult::Ok
         }
         Err(_) => CResult::Error,
