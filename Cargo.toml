@@ -12,7 +12,7 @@ default = ["julia"]
 julia = []
 
 [dependencies]
-iceberg = "0.6.0"
+iceberg = { git = "https://github.com/apache/iceberg-rust.git", rev = "3a9cb6b1868b5a2f2e3f86ba6a6a07ece34c252f" }
 object_store_ffi = { git = "https://github.com/RelationalAI/object_store_ffi", rev = "db0f6a3fe282e267a53c119c0aca4b5af341df3f", default-features = false }
 tokio = { version = "1.0", features = ["full"] }
 futures = "0.3"
