@@ -5,7 +5,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use anyhow::Result;
 use arrow_array::RecordBatch;
 use arrow_ipc::writer::StreamWriter;
-use futures::stream::StreamExt;
+use futures::stream::{StreamExt, TryStreamExt, BoxStream};
 use iceberg::io::FileIOBuilder;
 use iceberg::table::StaticTable;
 use iceberg::TableIdent;
@@ -82,11 +82,14 @@ pub struct IcebergTable {
     pub table: iceberg::table::Table,
 }
 
-// Stream wrapper for FFI - using async mutex to avoid blocking calls
+// Type alias for ArrowBatch stream, similar to iceberg-rust's ArrowRecordBatchStream
+pub type ArrowBatchStream = BoxStream<'static, Result<ArrowBatch, anyhow::Error>>;
+
+// Stream wrapper for FFI - using async mutex for thread safety
+// Even with single Julia task, we need mutex for async/await compatibility
 #[repr(C)]
 pub struct IcebergStream {
-    pub stream:
-        AsyncMutex<futures::stream::BoxStream<'static, Result<RecordBatch, iceberg::Error>>>,
+    pub stream: AsyncMutex<ArrowBatchStream>,
 }
 
 unsafe impl Send for IcebergStream {}
@@ -110,6 +113,12 @@ pub struct ArrowBatch {
     pub length: usize,
     pub rust_ptr: *mut c_void,
 }
+
+// SAFETY: ArrowBatch can be safely sent between threads because:
+// - We control the allocation and deallocation of the underlying data
+// - The raw pointers are only accessed through our controlled FFI interface
+// - Proper cleanup is ensured through iceberg_arrow_batch_free
+unsafe impl Send for ArrowBatch {}
 
 // Response types for async operations
 #[repr(C)]
@@ -395,15 +404,41 @@ export_runtime_op!(
         }
 
         let table_scan = scan_builder.build()?;
-        let stream = table_scan.to_arrow().await?;
+        let record_batch_stream = table_scan.to_arrow().await?;
 
-        // Create stream wrapper
+        // Use serialization_concurrency_limit for parallelism
+        let serialization_parallelism = if serialization_concurrency_limit > 0 {
+            serialization_concurrency_limit
+        } else {
+            std::thread::available_parallelism()
+                .map(|p| p.get())
+                .unwrap_or(4)
+        };
+
+        // Transform the stream to spawn serialization tasks in parallel
+        let processed_stream = record_batch_stream
+            .map_err(|e| anyhow::anyhow!("Iceberg error: {}", e))
+            .map_ok(|record_batch| async move {
+                // Spawn blocking task for CPU-intensive serialization
+                let join_handle = tokio::task::spawn_blocking(move || {
+                    serialize_record_batch(record_batch)
+                });
+
+                // Await the spawned task
+                match join_handle.await {
+                    Ok(serialization_result) => serialization_result,
+                    Err(join_error) => Err(anyhow::anyhow!("Serialization task failed: {}", join_error)),
+                }
+            })
+            .try_buffer_unordered(serialization_parallelism);
+
+        // Create stream wrapper with the processed stream
         let iceberg_stream = Box::new(IcebergStream {
-            stream: AsyncMutex::new(stream),
+            stream: AsyncMutex::new(Box::pin(processed_stream)),
         });
         let stream_ptr = Box::into_raw(iceberg_stream);
 
-        tracing::info!("Created stream pointer successfully: {:?}", stream_ptr);
+        tracing::info!("Created processed stream pointer successfully: {:?}", stream_ptr);
 
         // Store stream in scan
         scan_ref.stream = Some(stream_ptr);
@@ -413,7 +448,8 @@ export_runtime_op!(
     },
     scan: *mut IcebergScan,
     batch_size: usize,
-    concurrency_limit: usize
+    concurrency_limit: usize,
+    serialization_concurrency_limit: usize
 );
 
 // Async function to get next batch from existing stream
@@ -439,16 +475,10 @@ export_runtime_op!(
     },
     stream_ref,
     async {
-        // Acquire lock only to fetch record batch, then release it before serialization
-        let record_batch_result = {
-            let mut stream_guard = stream_ref.stream.lock().await;
-            stream_guard.next().await
-        }; // Lock is released here
-
-        match record_batch_result {
-            Some(Ok(record_batch)) => {
-                // Serialize without holding the lock, allowing other tasks to fetch batches
-                let arrow_batch = serialize_record_batch(record_batch)?;
+        let mut stream_guard = stream_ref.stream.lock().await;
+        match stream_guard.next().await {
+            Some(Ok(arrow_batch)) => {
+                // ArrowBatch is already serialized, just box it
                 let batch_ptr = Box::into_raw(Box::new(arrow_batch));
                 Ok(batch_ptr)
             }

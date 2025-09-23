@@ -84,7 +84,7 @@ CResult iceberg_scan_select_columns(IcebergScan* scan, const char** column_names
 void iceberg_scan_free(IcebergScan* scan);
 
 // New simplified async API
-CResult iceberg_scan_init_stream(IcebergScan* scan, size_t batch_size, size_t concurrency_limit, IcebergResponse* response, const void* handle);
+CResult iceberg_scan_init_stream(IcebergScan* scan, size_t batch_size, size_t concurrency_limit, size_t serialization_concurrency_limit, IcebergResponse* response, const void* handle);
 CResult iceberg_scan_next_batch(IcebergScan* scan, IcebergBatchResponse* response, const void* handle);
 void iceberg_arrow_batch_free(ArrowBatch* batch);
 
