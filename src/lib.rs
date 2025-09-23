@@ -419,8 +419,7 @@ export_runtime_op!(
         let processed_stream = record_batch_stream
             .map_err(|e| anyhow::anyhow!("Iceberg error: {}", e))
             .map_ok(|record_batch| async move {
-                // Spawn blocking task for CPU-intensive serialization
-                let join_handle = tokio::task::spawn_blocking(move || {
+                let join_handle = tokio::task::spawn(async move {
                     serialize_record_batch(record_batch)
                 });
 
