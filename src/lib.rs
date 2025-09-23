@@ -439,10 +439,15 @@ export_runtime_op!(
     },
     stream_ref,
     async {
-        let mut stream_guard = stream_ref.stream.lock().await;
+        // Acquire lock only to fetch record batch, then release it before serialization
+        let record_batch_result = {
+            let mut stream_guard = stream_ref.stream.lock().await;
+            stream_guard.next().await
+        }; // Lock is released here
 
-        match stream_guard.next().await {
+        match record_batch_result {
             Some(Ok(record_batch)) => {
+                // Serialize without holding the lock, allowing other tasks to fetch batches
                 let arrow_batch = serialize_record_batch(record_batch)?;
                 let batch_ptr = Box::into_raw(Box::new(arrow_batch));
                 Ok(batch_ptr)
