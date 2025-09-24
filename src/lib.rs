@@ -327,11 +327,9 @@ export_runtime_op!(
         let table_ident = TableIdent::from_strs(["default", "table"])?;
 
         // Load the static table
-        tracing::info!("Loading static table from metadata path: {}", full_metadata_path);
         let static_table =
             StaticTable::from_metadata_file(&full_metadata_path, table_ident, file_io).await?;
 
-        tracing::info!("Successfully loaded static table, converting to table");
         Ok::<IcebergTable, anyhow::Error>(IcebergTable { table: static_table.into_table() })
     },
     table_path: *const c_char,
@@ -578,6 +576,7 @@ pub extern "C" fn iceberg_arrow_batch_free(batch: *mut ArrowBatch) {
         }
     }
 }
+
 // Re-export object_store_ffi utilities
 #[no_mangle]
 pub extern "C" fn iceberg_destroy_cstring(string: *mut c_char) -> CResult {
