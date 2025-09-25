@@ -147,6 +147,14 @@ static void unload_iceberg_library(void) {
     }
 }
 
+void wait_until_completed(uintptr_t* async_completed, int timeout) {
+    printf("⏳ Waiting for table open to complete...\n");
+    while (!(*async_completed) && timeout > 0) {
+        usleep(100000);  // 100ms
+        timeout--;
+    }
+}
+
 int main(int argc, char* argv[]) {
     printf("Starting Iceberg C API integration test with new async API...\n");
 
@@ -198,12 +206,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Wait for async operation to complete
-    printf("⏳ Waiting for table open to complete...\n");
-    int timeout = 100;  // 10 second timeout
-    while (!async_completed && timeout > 0) {
-        usleep(100000);  // 100ms
-        timeout--;
-    }
+    wait_until_completed((uintptr_t*)&async_completed, 100);
 
     if (!async_completed) {
         printf("❌ Async operation timed out\n");
@@ -271,12 +274,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Wait for completion
-    printf("⏳ Waiting for stream creation to complete...\n");
-    timeout = 100;  // 10 second timeout
-    while (!async_completed && timeout > 0) {
-        usleep(100000);  // 100ms
-        timeout--;
-    }
+    wait_until_completed((uintptr_t*)&async_completed, 100);
 
     if (!async_completed) {
         printf("❌ Stream creation async operation timed out\n");
@@ -317,12 +315,7 @@ int main(int argc, char* argv[]) {
     result = iceberg_next_batch_func(stream_response.stream, &batch_response, (const void*)(uintptr_t)&async_completed);
 
     if (result == CRESULT_OK) {
-        // Wait for batch retrieval to complete
-        timeout = 100;  // 10 second timeout
-        while (!async_completed && timeout > 0) {
-            usleep(100000);  // 100ms
-            timeout--;
-        }
+        wait_until_completed((uintptr_t*)&async_completed, 100);
 
         if (!async_completed) {
             printf("❌ Batch retrieval async operation timed out\n");

@@ -96,6 +96,8 @@ void iceberg_scan_free(IcebergScan** scan);
 CResult iceberg_arrow_stream(IcebergScan* scan, IcebergArrowStreamResponse* response, const void* handle);
 CResult iceberg_next_batch(IcebergArrowStream* stream, IcebergBatchResponse* response, const void* handle);
 void iceberg_arrow_stream_free(IcebergArrowStream* stream);
+
+// Synchronous batch free
 void iceberg_arrow_batch_free(ArrowBatch* batch);
 
 // Utility functions
