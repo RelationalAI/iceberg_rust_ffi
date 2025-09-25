@@ -12,6 +12,10 @@ static int (*iceberg_init_runtime_func)(IcebergStaticConfig config, int (*panic_
 static int (*iceberg_table_open_func)(const char*, const char*, IcebergTableResponse*, const void*) = NULL;
 static IcebergScan* (*iceberg_new_scan_func)(IcebergTable*) = NULL;
 static int (*iceberg_scan_build_func)(IcebergScan**) = NULL;
+static int (*iceberg_select_columns_func)(IcebergScan**, const char**, size_t) = NULL;
+static int (*iceberg_scan_with_batch_size_func)(IcebergScan**, size_t) = NULL;
+static int (*iceberg_scan_with_data_file_concurrency_limit_func)(IcebergScan**, size_t) = NULL;
+static int (*iceberg_scan_with_manifest_file_concurrency_limit_func)(IcebergScan**, size_t) = NULL;
 static void (*iceberg_scan_free_func)(IcebergScan**) = NULL;
 static int (*iceberg_arrow_stream_func)(IcebergScan*, IcebergArrowStreamResponse*, const void*) = NULL;
 static int (*iceberg_next_batch_func)(IcebergArrowStream*, IcebergBatchResponse*, const void*) = NULL;
@@ -78,6 +82,30 @@ static int load_iceberg_library(const char* library_path) {
     iceberg_scan_build_func = (int (*)(IcebergScan**))dlsym(lib_handle, "iceberg_scan_build");
     if (!iceberg_scan_build_func) {
         fprintf(stderr, "❌ Failed to resolve iceberg_scan_build: %s\n", dlerror());
+        return 0;
+    }
+
+    iceberg_select_columns_func = (int (*)(IcebergScan**, const char**, size_t))dlsym(lib_handle, "iceberg_select_columns");
+    if (!iceberg_select_columns_func) {
+        fprintf(stderr, "❌ Failed to resolve iceberg_select_columns: %s\n", dlerror());
+        return 0;
+    }
+
+    iceberg_scan_with_batch_size_func = (int (*)(IcebergScan**, size_t))dlsym(lib_handle, "iceberg_scan_with_batch_size");
+    if (!iceberg_scan_with_batch_size_func) {
+        fprintf(stderr, "❌ Failed to resolve iceberg_scan_with_batch_size: %s\n" , dlerror());
+        return 0;
+    }
+
+    iceberg_scan_with_data_file_concurrency_limit_func = (int (*)(IcebergScan**, size_t))dlsym(lib_handle, "iceberg_scan_with_data_file_concurrency_limit");
+    if (!iceberg_scan_with_data_file_concurrency_limit_func) {
+        fprintf(stderr, "❌ Failed to resolve iceberg_scan_with_data_file_concurrency_limit: %s\n", dlerror());
+        return 0;
+    }
+
+    iceberg_scan_with_manifest_file_concurrency_limit_func = (int (*)(IcebergScan**, size_t))dlsym(lib_handle, "iceberg_scan_with_manifest_entry_concurrency_limit");
+    if (!iceberg_scan_with_manifest_file_concurrency_limit_func) {
+        fprintf(stderr, "❌ Failed to resolve iceberg_scan_with_manifest_entry_concurrency_limit: %s\n", dlerror());
         return 0;
     }
 
@@ -244,8 +272,41 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Print the scan pointer
-    printf("Scan pointer: %p\n", (void*)scan);
+    result = iceberg_scan_with_data_file_concurrency_limit_func(&scan, 4);
+    if (result != CRESULT_OK) {
+        printf("❌ Failed to set data file concurrency limit\n");
+        iceberg_scan_free_func(&scan);
+        iceberg_table_free_func(table_response.table);
+        unload_iceberg_library();
+        return 1;
+    }
+
+    result = iceberg_scan_with_manifest_file_concurrency_limit_func(&scan, 4);
+    if (result != CRESULT_OK) {
+        printf("❌ Failed to set manifest file concurrency limit\n");
+        iceberg_scan_free_func(&scan);
+        iceberg_table_free_func(table_response.table);
+        unload_iceberg_library();
+        return 1;
+    }
+
+    result = iceberg_scan_with_batch_size_func(&scan, 1024);
+    if (result != CRESULT_OK) {
+        printf("❌ Failed to set batch size\n");
+        iceberg_scan_free_func(&scan);
+        iceberg_table_free_func(table_response.table);
+        unload_iceberg_library();
+        return 1;
+    }
+
+    result = iceberg_select_columns_func(&scan, (const char*[]){"n_nationkey", "n_name", "n_regionkey", "n_comment"}, 4);
+    if (result != CRESULT_OK) {
+        printf("❌ Failed to select columns\n");
+        iceberg_scan_free_func(&scan);
+        iceberg_table_free_func(table_response.table);
+        unload_iceberg_library();
+        return 1;
+    }
 
     result = iceberg_scan_build_func(&scan);
 
