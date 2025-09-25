@@ -449,9 +449,11 @@ pub extern "C" fn iceberg_scan_with_batch_size(scan: &mut *mut IcebergScan, n: u
         return CResult::Error;
     }
 
+    assert!(scan_ref.scan.is_none());
+
     *scan = Box::into_raw(Box::new(IcebergScan {
         builder: scan_ref.builder.map(|b| b.with_batch_size(Some(n))),
-        scan: scan_ref.scan,
+        scan: None,
     }));
 
     return CResult::Ok;
