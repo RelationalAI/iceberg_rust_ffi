@@ -199,6 +199,7 @@ impl RawResponse for IcebergBatchResponse {
     fn set_payload(&mut self, payload: Option<Self::Payload>) {
         match payload.flatten() {
             Some(batch) => {
+                // TODO: This is currently a bottleneck, and should be done in parallel.
                 let arrow_batch = serialize_record_batch(batch);
                 match arrow_batch {
                     Ok(arrow_batch) => {
