@@ -46,9 +46,9 @@ if [ -f ".env" ]; then
     set +a
 fi
 
-# Step 1: Build the Rust library
+# Step 1: Build the Rust library (without julia feature for standalone C integration)
 print_status "Building Rust library..."
-if cargo build; then
+if cargo build --no-default-features; then
     print_success "Rust library built successfully"
 else
     print_error "Failed to build Rust library"
@@ -74,7 +74,7 @@ print_status "Using library from: $LIB_PATH"
 
 # Step 2: Build the integration test
 print_status "Building integration test..."
-if gcc -o integration_test tests/integration_test.c -Iinclude -L"$LIB_PATH" -liceberg_rust_ffi -lpthread -ldl -lm; then
+if gcc -Wall -Wextra -o integration_test tests/integration_test.c -Iinclude -L"$LIB_PATH" -liceberg_rust_ffi -lpthread -ldl -lm; then
     print_success "Integration test built successfully"
 else
     print_error "Failed to build integration test"
@@ -84,7 +84,24 @@ fi
 # Step 3: Run the integration test
 print_status "Running integration test..."
 echo "=========================================="
-if ./integration_test; then
+
+# Determine the exact library filename
+LIBRARY=""
+if [ -f "$LIB_PATH/libiceberg_rust_ffi.dylib" ]; then
+    LIBRARY="$LIB_PATH/libiceberg_rust_ffi.dylib"
+elif [ -f "$LIB_PATH/libiceberg_rust_ffi.so" ]; then
+    LIBRARY="$LIB_PATH/libiceberg_rust_ffi.so"
+else
+    print_error "Could not find dynamic library"
+    exit 1
+fi
+
+print_status "Using library: $LIBRARY"
+# Pass through RUST_LOG environment variable if set
+if [ -n "$RUST_LOG" ]; then
+    export RUST_LOG="$RUST_LOG"
+fi
+if ./integration_test "$LIBRARY"; then
     echo "=========================================="
     print_success "Integration test completed successfully!"
 else

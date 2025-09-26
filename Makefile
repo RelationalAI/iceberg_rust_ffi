@@ -17,16 +17,13 @@ TARGET = local
 # Default target
 all: build test
 
-# Generate C header
-generate-header:
+# Build the Rust library
+build-lib:
 	@if [ "$(TARGET)" = "local" ]; then \
-		cargo build --release; \
+		cargo build --release --no-default-features; \
 	else \
-		cargo build --release --target $(TARGET); \
+		cargo build --release --no-default-features --target $(TARGET); \
 	fi
-
-# Build the Rust library and generate header
-build-lib: generate-header
 
 # Build the integration test
 build-test: build-lib
@@ -67,7 +64,6 @@ clean-all: clean
 help:
 	@echo "Available targets:"
 	@echo "  all             - Build and run integration test"
-	@echo "  generate-header - Generate C header file using cbindgen"
 	@echo "  build-lib       - Build only the Rust library"
 	@echo "  build-test      - Build the integration test (requires library)"
 	@echo "  build           - Build everything"
@@ -78,4 +74,4 @@ help:
 	@echo "  clean-all       - Clean everything including target directory"
 	@echo "  help            - Show this help message"
 
-.PHONY: all generate-header build-lib build-test build test clean clean-all help stop-containers run-containers
+.PHONY: all build-lib build-test build test clean clean-all help stop-containers run-containers
