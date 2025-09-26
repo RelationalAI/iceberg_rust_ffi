@@ -14,8 +14,8 @@ use iceberg::TableIdent;
 // Import from object_store_ffi
 use object_store_ffi::{
     cancel_context, current_metrics, destroy_context, destroy_cstring, export_runtime_op,
-    with_cancellation, CResult, Context, NotifyGuard, RawResponse, ResponseGuard, ResultCallback,
-    RESULT_CB, RT,
+    with_cancellation, CResult, Context, NotifyGuard, PanicCallback, RawResponse, ResponseGuard,
+    ResultCallback, RESULT_CB, RT,
 };
 
 // We use `jl_adopt_thread` to ensure Rust can call into Julia when notifying
@@ -59,9 +59,6 @@ impl RawResponse for IcebergResponse {
     }
 }
 
-// Callback types for Julia integration
-type PanicCallback = unsafe extern "C" fn() -> i32;
-
 // Simple config for iceberg - only what we need
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -94,6 +91,7 @@ unsafe impl Send for IcebergScan {}
 // Stream wrapper for FFI - using async mutex to avoid blocking calls
 #[repr(C)]
 pub struct IcebergArrowStream {
+    // TODO: Maybe remove this mutex and let this be handled in Julia?
     pub stream:
         AsyncMutex<futures::stream::BoxStream<'static, Result<RecordBatch, iceberg::Error>>>,
 }
@@ -298,29 +296,15 @@ export_runtime_op!(
     iceberg_table_open,
     IcebergTableResponse,
     || {
-        let table_path_str = unsafe {
-            CStr::from_ptr(table_path).to_str()
-                .map_err(|e| anyhow::anyhow!("Invalid UTF-8 in table path: {}", e))?
+        let snapshot_path_str = unsafe {
+            CStr::from_ptr(snapshot_path).to_str()
+                .map_err(|e| anyhow::anyhow!("Invalid UTF-8 in snapshot path: {}", e))?
         };
-        let metadata_path_str = unsafe {
-            CStr::from_ptr(metadata_path).to_str()
-                .map_err(|e| anyhow::anyhow!("Invalid UTF-8 in metadata path: {}", e))?
-        };
-        Ok((table_path_str.to_string(), metadata_path_str.to_string()))
+
+        Ok(snapshot_path_str.to_string())
     },
-    paths,
+    full_metadata_path,
     async {
-        let (table_path_str, metadata_path_str) = paths;
-
-        // Construct the full metadata path
-        let full_metadata_path = if metadata_path_str.starts_with('/') {
-            metadata_path_str
-        } else {
-            let table_path_trimmed = table_path_str.trim_end_matches('/');
-            let metadata_path_trimmed = metadata_path_str.trim_start_matches('/');
-            format!("{}/{}", table_path_trimmed, metadata_path_trimmed)
-        };
-
         // Create file IO for S3
         let file_io = FileIOBuilder::new("s3").build()?;
 
@@ -333,8 +317,7 @@ export_runtime_op!(
 
         Ok::<IcebergTable, anyhow::Error>(IcebergTable { table: static_table.into_table() })
     },
-    table_path: *const c_char,
-    metadata_path: *const c_char
+    snapshot_path: *const c_char
 );
 
 #[no_mangle]

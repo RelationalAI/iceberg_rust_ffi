@@ -9,7 +9,7 @@
 
 // Global function pointers for new async API
 static int (*iceberg_init_runtime_func)(IcebergStaticConfig config, int (*panic_callback)(void), int (*result_callback)(const void*)) = NULL;
-static int (*iceberg_table_open_func)(const char*, const char*, IcebergTableResponse*, const void*) = NULL;
+static int (*iceberg_table_open_func)(const char*, IcebergTableResponse*, const void*) = NULL;
 static IcebergScan* (*iceberg_new_scan_func)(IcebergTable*) = NULL;
 static int (*iceberg_scan_build_func)(IcebergScan**) = NULL;
 static int (*iceberg_select_columns_func)(IcebergScan**, const char**, size_t) = NULL;
@@ -67,7 +67,7 @@ static int load_iceberg_library(const char* library_path) {
         return 0;
     }
 
-    iceberg_table_open_func = (int (*)(const char*, const char*, IcebergTableResponse*, const void*))dlsym(lib_handle, "iceberg_table_open");
+    iceberg_table_open_func = (int (*)(const char*, IcebergTableResponse*, const void*))dlsym(lib_handle, "iceberg_table_open");
     if (!iceberg_table_open_func) {
         fprintf(stderr, "❌ Failed to resolve iceberg_table_open: %s\n", dlerror());
         return 0;
@@ -218,14 +218,12 @@ int main(int argc, char* argv[]) {
     printf("✅ Runtime initialized successfully\n");
 
     // 2. Open table using async API
-    const char* table_path = "s3://warehouse/tpch.sf01/nation";
-    const char* metadata_path = "metadata/00001-44f668fe-3688-49d5-851f-36e75d143321.metadata.json";
-    printf("Opening table at: %s\n", table_path);
-    printf("Using metadata file: %s\n", metadata_path);
+    const char* snapshot_path = "s3://warehouse/tpch.sf01/nation/metadata/00001-44f668fe-3688-49d5-851f-36e75d143321.metadata.json";
+    printf("Opening table at: %s\n", snapshot_path);
 
     IcebergTableResponse table_response = {0};
     async_completed = 0;  // Reset flag
-    result = iceberg_table_open_func(table_path, metadata_path, &table_response, (const void*)(uintptr_t)&async_completed);
+    result = iceberg_table_open_func(snapshot_path, &table_response, (const void*)(uintptr_t)&async_completed);
 
     if (result != CRESULT_OK) {
         printf("❌ Failed to initiate table open operation\n");

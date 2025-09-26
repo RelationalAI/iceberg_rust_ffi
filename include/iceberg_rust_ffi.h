@@ -80,7 +80,7 @@ typedef int (*ResultCallback)(const void* task);
 CResult iceberg_init_runtime(IcebergStaticConfig config, PanicCallback panic_callback, ResultCallback result_callback);
 
 // Async table operations
-CResult iceberg_table_open(const char* table_path, const char* metadata_path, IcebergTableResponse* response, const void* handle);
+CResult iceberg_table_open(const char* snapshot_path, IcebergTableResponse* response, const void* handle);
 void iceberg_table_free(IcebergTable* table);
 
 // Synchronous scan creation
